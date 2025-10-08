@@ -8,7 +8,10 @@ logger = logging.getLogger(__name__)
 
 class PersistentQueueManager:
     def __init__(self, filename='queues_data.json'):
-        self.filename = filename
+        # Получаем абсолютный путь к папке проекта
+        self.project_dir = os.path.dirname(os.path.abspath(__file__))
+        self.filename = os.path.join(self.project_dir, filename)
+        
         self.queues = defaultdict(list)
         self.pending_swaps = {}
         self.load_data()
