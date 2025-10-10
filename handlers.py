@@ -14,13 +14,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if update.message and update.message.is_topic_message:
             topic_id = update.message.message_thread_id
-            await update.message.reply_text(
-                f"Бот для управления очередью в этом топике!\n\n"
-                f"Используйте кнопки ниже для управления очередью.",
+            sent_message = await context.bot.send_message(
+                chat_id=update.message.chat_id,
+                text=f"Бот для управления очередью в этом топике!\n\n"
+                     f"Используйте кнопки ниже для управления очередью.",
                 reply_markup=get_main_keyboard(),
-                message_thread_id=topic_id,
-                reply_to_message_id=None
+                message_thread_id=topic_id
             )
+            queue_manager.set_queue_message_id(topic_id, sent_message.message_id)
     except (TimedOut, NetworkError) as e:
         logger.warning(f"Timeout in start command: {e}")
     except Exception as e:
@@ -31,11 +32,11 @@ async def init_queue_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         if update.message and update.message.is_topic_message:
             topic_id = update.message.message_thread_id
-            sent_message = await update.message.reply_text(
-                queue_manager.get_queue_text(topic_id),
+            sent_message = await context.bot.send_message(
+                chat_id=update.message.chat_id,
+                text=queue_manager.get_queue_text(topic_id),
                 reply_markup=get_main_keyboard(),
-                message_thread_id=topic_id,
-                reply_to_message_id=None
+                message_thread_id=topic_id
             )
             queue_manager.set_queue_message_id(topic_id, sent_message.message_id)
     except (TimedOut, NetworkError) as e:
@@ -47,7 +48,11 @@ async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда для принудительного сохранения данных"""
     try:
         queue_manager.save_data()
-        await update.message.reply_text("✅ Данные сохранены вручную")
+        await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text="✅ Данные сохранены вручную",
+            message_thread_id=update.message.message_thread_id
+        )
     except Exception as e:
         logger.error(f"Error in backup command: {e}")
 
@@ -73,13 +78,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if query.data == "add_to_queue":
-            await add_to_queue_handler(query, topic_id, user_id)
+            await add_to_queue_handler(query, topic_id, user_id, context)
         
         elif query.data == "remove_from_queue":
-            await remove_from_queue_handler(query, topic_id, user_id)
+            await remove_from_queue_handler(query, topic_id, user_id, context)
         
         elif query.data == "start_swap":
-            await start_swap_handler(query, topic_id, user_id, chat_id)
+            await start_swap_handler(query, topic_id, user_id, chat_id, context)
         
         elif query.data.startswith("swap_with_"):
             target_user_id = int(query.data.split("_")[2])
@@ -87,14 +92,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         elif query.data.startswith("swap_confirm_"):
             swap_id = query.data.split("_", 2)[2]
-            await confirm_swap(query, swap_id, chat_id, context)  # Добавляем context
+            await confirm_swap(query, swap_id, chat_id, context)
         
         elif query.data.startswith("swap_cancel_"):
             swap_id = query.data.split("_", 2)[2]
-            await cancel_swap(query, swap_id, chat_id, context)  # Добавляем context
+            await cancel_swap(query, swap_id, chat_id, context)
         
         elif query.data == "back_to_main":
-            await back_to_main_handler(query, topic_id)
+            await back_to_main_handler(query, topic_id, context)
     
     except Exception as e:
         logger.error(f"Error in callback handler: {e}")
@@ -104,7 +109,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 # Обработчики конкретных действий
-async def add_to_queue_handler(query, topic_id, user_id):
+async def add_to_queue_handler(query, topic_id, user_id, context: ContextTypes.DEFAULT_TYPE):
     """Добавление пользователя в очередь"""
     try:
         user = query.from_user
@@ -113,33 +118,41 @@ async def add_to_queue_handler(query, topic_id, user_id):
         )
         
         if success:
-            await query.edit_message_text(
-                queue_manager.get_queue_text(topic_id),
-                reply_markup=get_main_keyboard()
-            )
+            main_message_id = queue_manager.get_queue_message_id(topic_id)
+            if main_message_id:
+                await context.bot.edit_message_text(
+                    chat_id=query.message.chat_id,
+                    message_id=main_message_id,
+                    text=queue_manager.get_queue_text(topic_id),
+                    reply_markup=get_main_keyboard()
+                )
         else:
             await query.answer("Вы уже в очереди!", show_alert=True)
     except Exception as e:
         logger.error(f"Error in add_to_queue: {e}")
         await query.answer("Ошибка при добавлении в очередь", show_alert=True)
 
-async def remove_from_queue_handler(query, topic_id, user_id):
+async def remove_from_queue_handler(query, topic_id, user_id, context: ContextTypes.DEFAULT_TYPE):
     """Удаление пользователя из очереди"""
     try:
         success = queue_manager.remove_user_from_queue(topic_id, user_id)
         
         if success:
-            await query.edit_message_text(
-                queue_manager.get_queue_text(topic_id),
-                reply_markup=get_main_keyboard()
-            )
+            main_message_id = queue_manager.get_queue_message_id(topic_id)
+            if main_message_id:
+                await context.bot.edit_message_text(
+                    chat_id=query.message.chat_id,
+                    message_id=main_message_id,
+                    text=queue_manager.get_queue_text(topic_id),
+                    reply_markup=get_main_keyboard()
+                )
         else:
             await query.answer("Вы не в очереди!", show_alert=True)
     except Exception as e:
         logger.error(f"Error in remove_from_queue: {e}")
         await query.answer("Ошибка при выходе из очереди", show_alert=True)
 
-async def start_swap_handler(query, topic_id, user_id, chat_id):
+async def start_swap_handler(query, topic_id, user_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
     """Начало процесса обмена - показ списка пользователей"""
     try:
         queue = queue_manager.queues[topic_id]
@@ -147,12 +160,12 @@ async def start_swap_handler(query, topic_id, user_id, chat_id):
             await query.answer("В очереди должно быть минимум 2 человека для обмена!", show_alert=True)
             return
         
-        # Создаем новое сообщение со списком пользователей
-        await query.message.reply_text(
-            "Выберите пользователя, с которым хотите поменяться местами:",
+        # Создаем новое самостоятельное сообщение со списком пользователей
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Выберите пользователя, с которым хотите поменяться местами:",
             reply_markup=get_swap_users_keyboard(queue, user_id),
-            message_thread_id=topic_id,
-            reply_to_message_id=None
+            message_thread_id=topic_id
         )
     except Exception as e:
         logger.error(f"Error in start_swap: {e}")
@@ -237,14 +250,6 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
                     text=queue_manager.get_queue_text(swap_data['topic_id']),
                     reply_markup=get_main_keyboard()
                 )
-            
-            # # Уведомление об успехе (можно закомментировать, если не нужно)
-            # await context.bot.send_message(
-            #     chat_id=chat_id,
-            #     text=f"✅ Обмен выполнен! {swap_data['user1_name']} и {swap_data['user2_name']} поменялись местами.",
-            #     message_thread_id=swap_data['topic_id'],
-            #     reply_to_message_id=None
-            # )
         else:
             await query.answer("Ошибка при обмене", show_alert=True)
         
@@ -278,14 +283,6 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             logger.error(f"Error deleting proposal message: {e}")
         
-        # Уведомление об отказе (можно закомментировать, если не нужно)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"❌ {swap_data['user2_name']} отказался от обмена с {swap_data['user1_name']}.",
-            message_thread_id=swap_data['topic_id'],
-            reply_to_message_id=None
-        )
-        
         # Удаляем данные об обмене
         queue_manager.remove_pending_swap(swap_id)
     
@@ -293,13 +290,23 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error in cancel_swap: {e}")
         await query.answer("Ошибка при отмене обмена", show_alert=True)
 
-async def back_to_main_handler(query, topic_id):
+async def back_to_main_handler(query, topic_id, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик возврата в главное меню"""
     try:
-        await query.edit_message_text(
-            queue_manager.get_queue_text(topic_id),
-            reply_markup=get_main_keyboard()
+        # Удаляем сообщение со списком
+        await context.bot.delete_message(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id
         )
+        # Обновляем основное сообщение
+        main_message_id = queue_manager.get_queue_message_id(topic_id)
+        if main_message_id:
+            await context.bot.edit_message_text(
+                chat_id=query.message.chat_id,
+                message_id=main_message_id,
+                text=queue_manager.get_queue_text(topic_id),
+                reply_markup=get_main_keyboard()
+            )
     except Exception as e:
         logger.error(f"Error in back_to_main: {e}")
         await query.answer("Ошибка при возврате в меню", show_alert=True)
