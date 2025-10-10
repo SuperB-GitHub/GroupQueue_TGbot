@@ -31,12 +31,13 @@ async def init_queue_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         if update.message and update.message.is_topic_message:
             topic_id = update.message.message_thread_id
-            await update.message.reply_text(
+            sent_message = await update.message.reply_text(
                 queue_manager.get_queue_text(topic_id),
                 reply_markup=get_main_keyboard(),
                 message_thread_id=topic_id,
                 reply_to_message_id=None
             )
+            queue_manager.set_queue_message_id(topic_id, sent_message.message_id)
     except (TimedOut, NetworkError) as e:
         logger.warning(f"Timeout in init command: {e}")
     except Exception as e:
@@ -85,12 +86,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await create_swap_proposal(query, topic_id, user_id, target_user_id, chat_id)
         
         elif query.data.startswith("swap_confirm_"):
-            swap_id = query.data.split("_")[2]
-            await confirm_swap(query, swap_id, chat_id)
+            swap_id = query.data.split("_", 2)[2]
+            await confirm_swap(query, swap_id, chat_id, context)  # Добавляем context
         
         elif query.data.startswith("swap_cancel_"):
-            swap_id = query.data.split("_")[2]
-            await cancel_swap(query, swap_id, chat_id)
+            swap_id = query.data.split("_", 2)[2]
+            await cancel_swap(query, swap_id, chat_id, context)  # Добавляем context
         
         elif query.data == "back_to_main":
             await back_to_main_handler(query, topic_id)
@@ -180,32 +181,28 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id):
             'user2_id': user2_id,
             'user1_name': user1_data['display_name'],
             'user2_name': user2_data['display_name'],
-            'chat_id': chat_id
+            'chat_id': chat_id,
+            'proposal_message_id': query.message.message_id
         }
         
         queue_manager.add_pending_swap(swap_id, swap_data)
         
-        # Создаем новое сообщение с предложением обмена через reply_text
-        swap_message = await query.message.reply_text(
+        # Обновляем сообщение со списком на предложение обмена
+        await query.edit_message_text(
             f"🔄 Предложение об обмене\n\n"
             f"{user1_data['display_name']} хочет поменяться местами с {user2_data['display_name']}\n\n"
             f"{user2_data['display_name']}, вы согласны на обмен?",
-            reply_markup=get_swap_confirmation_keyboard(swap_id),
-            message_thread_id=topic_id,
-            reply_to_message_id=None
+            reply_markup=get_swap_confirmation_keyboard(swap_id)
         )
-        
-        # Сохраняем ID сообщения с предложением обмена
-        swap_data['proposal_message_id'] = swap_message.message_id
-        queue_manager.add_pending_swap(swap_id, swap_data)
         
     except Exception as e:
         logger.error(f"Error in create_swap_proposal: {e}")
         await query.answer("Ошибка при создании предложения обмена", show_alert=True)
 
-async def confirm_swap(query, swap_id, chat_id):
+async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
     """Подтверждение обмена"""
     try:
+        swap_id = query.data.split("_", 2)[2]
         swap_data = queue_manager.get_pending_swap(swap_id)
         if not swap_data:
             await query.answer("Предложение об обмене устарело", show_alert=True)
@@ -222,22 +219,32 @@ async def confirm_swap(query, swap_id, chat_id):
         )
         
         if success:
-            # Удаляем сообщение с предложением обмена
+            # Удаляем сообщение с предложением об обмене
             try:
-                await query.bot.delete_message(
+                await context.bot.delete_message(
                     chat_id=chat_id,
                     message_id=swap_data['proposal_message_id']
                 )
             except Exception as e:
                 logger.error(f"Error deleting proposal message: {e}")
             
-            # Отправляем сообщение об успешном обмене
-            await query.bot.send_message(
-                chat_id=chat_id,
-                text=f"✅ Обмен выполнен! {swap_data['user1_name']} и {swap_data['user2_name']} поменялись местами.",
-                message_thread_id=swap_data['topic_id'],
-                reply_to_message_id=None
-            )
+            # Обновляем основное сообщение с очередью
+            main_message_id = queue_manager.get_queue_message_id(swap_data['topic_id'])
+            if main_message_id:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=main_message_id,
+                    text=queue_manager.get_queue_text(swap_data['topic_id']),
+                    reply_markup=get_main_keyboard()
+                )
+            
+            # # Уведомление об успехе (можно закомментировать, если не нужно)
+            # await context.bot.send_message(
+            #     chat_id=chat_id,
+            #     text=f"✅ Обмен выполнен! {swap_data['user1_name']} и {swap_data['user2_name']} поменялись местами.",
+            #     message_thread_id=swap_data['topic_id'],
+            #     reply_to_message_id=None
+            # )
         else:
             await query.answer("Ошибка при обмене", show_alert=True)
         
@@ -248,9 +255,10 @@ async def confirm_swap(query, swap_id, chat_id):
         logger.error(f"Error in confirm_swap: {e}")
         await query.answer("Ошибка при подтверждении обмена", show_alert=True)
 
-async def cancel_swap(query, swap_id, chat_id):
+async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
     """Отмена обмена"""
     try:
+        swap_id = query.data.split("_", 2)[2]
         swap_data = queue_manager.get_pending_swap(swap_id)
         if not swap_data:
             await query.answer("Предложение об обмене устарело", show_alert=True)
@@ -261,17 +269,17 @@ async def cancel_swap(query, swap_id, chat_id):
             await query.answer("Это предложение обмена не для вас!", show_alert=True)
             return
         
-        # Удаляем сообщение с предложением обмена
+        # Удаляем сообщение с предложением об обмене
         try:
-            await query.bot.delete_message(
+            await context.bot.delete_message(
                 chat_id=chat_id,
                 message_id=swap_data['proposal_message_id']
             )
         except Exception as e:
             logger.error(f"Error deleting proposal message: {e}")
         
-        # Отправляем сообщение об отмене
-        await query.bot.send_message(
+        # Уведомление об отказе (можно закомментировать, если не нужно)
+        await context.bot.send_message(
             chat_id=chat_id,
             text=f"❌ {swap_data['user2_name']} отказался от обмена с {swap_data['user1_name']}.",
             message_thread_id=swap_data['topic_id'],

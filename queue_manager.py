@@ -14,6 +14,7 @@ class PersistentQueueManager:
         
         self.queues = defaultdict(list)
         self.pending_swaps = {}
+        self.queue_message_ids = defaultdict(lambda: None)  # topic_id: message_id основного сообщения
         self.load_data()
     
     def load_data(self):
@@ -26,6 +27,8 @@ class PersistentQueueManager:
                     for topic_id_str, queue in data.get('queues', {}).items():
                         self.queues[int(topic_id_str)] = queue
                     self.pending_swaps = data.get('pending_swaps', {})
+                    # Восстанавливаем queue_message_ids
+                    self.queue_message_ids = {int(k): v for k, v in data.get('queue_message_ids', {}).items()}
                 logger.info(f"Данные загружены из {self.filename}")
         except Exception as e:
             logger.error(f"Ошибка при загрузке данных: {e}")
@@ -35,10 +38,12 @@ class PersistentQueueManager:
         try:
             # Конвертируем topic_id в строки для JSON
             queues_serializable = {str(k): v for k, v in self.queues.items()}
+            queue_message_ids_serializable = {str(k): v for k, v in self.queue_message_ids.items()}
             
             data = {
                 'queues': queues_serializable,
                 'pending_swaps': self.pending_swaps,
+                'queue_message_ids': queue_message_ids_serializable,
                 'last_save': datetime.now().isoformat()
             }
             
@@ -112,8 +117,14 @@ class PersistentQueueManager:
             text += f"{i}. {user['display_name']} {username}\n"
         
         return text
-
-    # Методы для управления pending_swaps
+    
+    def set_queue_message_id(self, topic_id, message_id):
+        self.queue_message_ids[topic_id] = message_id
+        self.save_data()
+    
+    def get_queue_message_id(self, topic_id):
+        return self.queue_message_ids.get(topic_id)
+    
     def add_pending_swap(self, swap_id, swap_data):
         self.pending_swaps[swap_id] = swap_data
         self.save_data()
