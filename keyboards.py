@@ -17,7 +17,7 @@ def get_swap_confirmation_keyboard(swap_id):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_swap_users_keyboard(queue, current_user_id):
+def get_swap_users_keyboard(queue, current_user_id, initiator_id):
     """Клавиатура выбора пользователя для обмена"""
     keyboard = []
     for user in queue:
@@ -33,7 +33,7 @@ def get_swap_users_keyboard(queue, current_user_id):
                 
             keyboard.append([InlineKeyboardButton(
                 button_text, 
-                callback_data=f"swap_with_{user['user_id']}"
+                callback_data=f"swap_with_{user['user_id']}_{initiator_id}"
             )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
