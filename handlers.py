@@ -188,15 +188,40 @@ async def start_swap_handler(query, topic_id, user_id, chat_id, context: Context
             await query.answer("В очереди должно быть минимум 2 человека для обмена!", show_alert=True)
             return
 
+        # Проверяем доступность JobQueue (новая проверка для безопасности)
+        if not context.job_queue:
+            logger.error("JobQueue is not available! Cannot set timeout for swap selection")
+            await query.answer("Ошибка: система временных задач недоступна", show_alert=True)
+            return
+
         # Создаем новое самостоятельное сообщение со списком пользователей
         initiator_username = query.from_user.username or query.from_user.first_name
-        text = f"Пользователь @{initiator_username} хочет поменяться местами. Выберите пользователя:"
-        await context.bot.send_message(
+        initiator_name = query.from_user.first_name
+        text = f"Пользователь {initiator_name} @{initiator_username} хочет поменяться местами. Выберите пользователя:\n\n⏰ Сообщение удалится через 1 минуту"
+        sent_message = await context.bot.send_message(
             chat_id=chat_id,
             text=text,
             reply_markup=get_swap_users_keyboard(queue, user_id, user_id),
             message_thread_id=topic_id
         )
+
+        # Создаем уникальный ID для сообщения выбора (selection_id)
+        selection_id = f"selection_{chat_id}_{topic_id}_{user_id}_{sent_message.message_id}"
+
+        # Запускаем таймер на удаление сообщения выбора через 60 секунд
+        context.job_queue.run_once(
+            callback_delete_selection,
+            60,
+            data={
+                'chat_id': chat_id,
+                'message_id': sent_message.message_id,
+                'selection_id': selection_id
+            },
+            name=f"selection_timeout_{selection_id}"
+        )
+
+        logger.info(f"Swap selection message created, timeout scheduled for 60 seconds")
+
     except Exception as e:
         logger.error(f"Error in start_swap: {e}")
         await query.answer("Ошибка при начале обмена", show_alert=True)
@@ -214,6 +239,13 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
         if query.from_user.id != user1_id:
             await query.answer("Это меню только для инициатора обмена!", show_alert=True)
             return
+
+        # Отменяем таймер удаления сообщения выбора, так как пользователь выбрал (новое добавление)
+        selection_id = f"selection_{chat_id}_{topic_id}_{user1_id}_{query.message.message_id}"
+        current_jobs = context.job_queue.get_jobs_by_name(f"selection_timeout_{selection_id}")
+        for job in current_jobs:
+            job.schedule_removal()
+            logger.info(f"Cancelled selection timeout for {selection_id}")
 
         queue = queue_manager.queues[topic_id]
 
@@ -235,6 +267,7 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
             'user2_id': user2_id,
             'user1_name': user1_data['display_name'],
             'user2_name': user2_data['display_name'],
+            'user1_username': user1_data['username'],
             'user2_username': user2_data['username'],
             'chat_id': chat_id,
             'proposal_message_id': query.message.message_id
@@ -248,14 +281,14 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
             f"🔄 Предложение обмена\n\n"
             f"{user1_data['display_name']} хочет поменяться местами с {user2_data['display_name']}\n\n"
             f"{ping}, вы согласны на обмен?\n\n"
-            f"⏰ Сообщение удалится через 5 секунд",
+            f"⏰ Сообщение удалится через 1 минуту",
             reply_markup=get_swap_confirmation_keyboard(swap_id)
         )
 
-        # Запускаем таймер на удаление через 5 секунд
+        # Запускаем таймер на удаление через 60 секунд (изменено с 5 на 60)
         context.job_queue.run_once(
             callback_delete_proposal,
-            5,
+            60,
             data={
                 'chat_id': chat_id,
                 'message_id': query.message.message_id,
@@ -264,7 +297,7 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
             name=f"swap_timeout_{swap_id}"
         )
 
-        logger.info(f"Swap proposal created with ID: {swap_id}, timeout scheduled for 5 seconds")
+        logger.info(f"Swap proposal created with ID: {swap_id}, timeout scheduled for 60 seconds")
 
     except Exception as e:
         logger.error(f"Error in create_swap_proposal: {e}")
@@ -272,7 +305,7 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
 
 
 async def callback_delete_proposal(context: ContextTypes.DEFAULT_TYPE):
-    """Удаление сообщения обмена по таймеру через 5 секунд"""
+    """Удаление сообщения обмена по таймеру через 60 секунд"""
     job = context.job
     if not job:
         logger.error("No job context in callback_delete_proposal")
@@ -312,10 +345,43 @@ async def callback_delete_proposal(context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Removed pending swap {swap_id} from storage")
 
 
+# Новая функция: Удаление сообщения выбора пользователя по таймеру
+async def callback_delete_selection(context: ContextTypes.DEFAULT_TYPE):
+    """Удаление сообщения выбора пользователя по таймеру через 60 секунд"""
+    job = context.job
+    if not job:
+        logger.error("No job context in callback_delete_selection")
+        return
+
+    job_data = job.data
+    chat_id = job_data['chat_id']
+    message_id = job_data['message_id']
+    selection_id = job_data['selection_id']
+
+    logger.info(f"Timeout callback triggered for selection {selection_id}, deleting message {message_id}")
+
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        logger.info(f"Successfully deleted selection message {message_id}")
+    except Exception as e:
+        logger.error(f"Failed to delete selection message {message_id}: {e}")
+        # Пытаемся отредактировать, если удаление не удалось
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="❌ Время для выбора истекло.",
+                reply_markup=None
+            )
+            logger.info(f"Edited expired selection message {message_id}")
+        except Exception as edit_error:
+            logger.error(f"Failed to edit expired selection message {message_id}: {edit_error}")
+
+
 async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
     """Подтверждение обмена"""
     try:
-        # Отменяем таймер удаления, так как пользователь ответил
+        # Отменяем таймер удаления предложения
         job_name = f"swap_timeout_{swap_id}"
         current_jobs = context.job_queue.get_jobs_by_name(job_name)
         for job in current_jobs:
@@ -353,14 +419,30 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
         )
 
         if success:
+            # Формируем текст в указанном формате
+            user1Mention = f"{swap_data['user1_name']} (@{swap_data['user1_username']})" if swap_data['user1_username'] else swap_data['user1_name']
+            user2Mention = f"{swap_data['user2_name']} (@{swap_data['user2_username']})" if swap_data['user2_username'] else swap_data['user2_name']
+            success_text = f"✅ {user1Mention} обменялся с {user2Mention}!\n\n⏰ Сообщение удалится через 10 минут"
+
             # Обновляем сообщение с предложением обмена
             try:
                 await query.edit_message_text(
-                    "✅ Обмен успешно выполнен!",
+                    success_text,
                     reply_markup=None
                 )
             except Exception as e:
                 logger.error(f"Error updating confirmation message: {e}")
+
+            # Запускаем таймер на удаление через 10 минут (600 секунд) (новое добавление)
+            context.job_queue.run_once(
+                callback_delete_success,
+                600,
+                data={
+                    'chat_id': chat_id,
+                    'message_id': query.message.message_id
+                },
+                name=f"success_timeout_{swap_id}"
+            )
 
             # Обновляем основное сообщение с очередью
             main_message_id = queue_manager.get_queue_message_id(swap_data['topic_id'])
@@ -381,10 +463,31 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
         await query.answer("Ошибка при подтверждении обмена", show_alert=True)
 
 
+# Новая функция: Удаление сообщения успеха по таймеру
+async def callback_delete_success(context: ContextTypes.DEFAULT_TYPE):
+    """Удаление сообщения об успешном обмене по таймеру через 10 минут"""
+    job = context.job
+    if not job:
+        logger.error("No job context in callback_delete_success")
+        return
+
+    job_data = job.data
+    chat_id = job_data['chat_id']
+    message_id = job_data['message_id']
+
+    logger.info(f"Timeout callback triggered for success message {message_id}")
+
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        logger.info(f"Successfully deleted success message {message_id}")
+    except Exception as e:
+        logger.error(f"Failed to delete success message {message_id}: {e}")
+
+
 async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
     """Отмена обмена"""
     try:
-        # Отменяем таймер удаления, так как пользователь ответил
+        # Отменяем таймер удаления предложения
         job_name = f"swap_timeout_{swap_id}"
         current_jobs = context.job_queue.get_jobs_by_name(job_name)
         for job in current_jobs:
@@ -404,11 +507,22 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
         # Обновляем сообщение с отменой
         try:
             await query.edit_message_text(
-                "❌ Обмен отменен",
+                "❌ Обмен отменен\n\n⏰ Сообщение удалится через 2 минуты",
                 reply_markup=None
             )
         except Exception as e:
             logger.error(f"Error updating cancellation message: {e}")
+
+        # Запускаем таймер на удаление через 2 минуты (120 секунд) (новое добавление)
+        context.job_queue.run_once(
+            callback_delete_cancel,
+            120,
+            data={
+                'chat_id': chat_id,
+                'message_id': query.message.message_id
+            },
+            name=f"cancel_timeout_{swap_id}"
+        )
 
         # Удаляем данные об обмене
         queue_manager.remove_pending_swap(swap_id)
@@ -418,9 +532,37 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
         await query.answer("Ошибка при отмене обмена", show_alert=True)
 
 
+# Новая функция: Удаление сообщения отмены по таймеру
+async def callback_delete_cancel(context: ContextTypes.DEFAULT_TYPE):
+    """Удаление сообщения об отмене обмена по таймеру через 2 минуты"""
+    job = context.job
+    if not job:
+        logger.error("No job context in callback_delete_cancel")
+        return
+
+    job_data = job.data
+    chat_id = job_data['chat_id']
+    message_id = job_data['message_id']
+
+    logger.info(f"Timeout callback triggered for cancel message {message_id}")
+
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        logger.info(f"Successfully deleted cancel message {message_id}")
+    except Exception as e:
+        logger.error(f"Failed to delete cancel message {message_id}: {e}")
+
+
 async def back_to_main_handler(query, topic_id, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик возврата в главное меню"""
     try:
+        # Отменяем таймер удаления сообщения выбора, если он активен (новое добавление)
+        selection_id = f"selection_{query.message.chat_id}_{topic_id}_{query.from_user.id}_{query.message.message_id}"
+        current_jobs = context.job_queue.get_jobs_by_name(f"selection_timeout_{selection_id}")
+        for job in current_jobs:
+            job.schedule_removal()
+            logger.info(f"Cancelled selection timeout for {selection_id}")
+
         # Удаляем сообщение со списком
         await context.bot.delete_message(
             chat_id=query.message.chat_id,
