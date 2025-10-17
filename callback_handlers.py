@@ -59,6 +59,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             swap_id = query.data.split("_", 2)[2]
             await cancel_swap(query, swap_id, chat_id, context)
 
+        elif query.data.startswith("swap_back_"):  # Новое добавление: обработка Назад в предложении
+            swap_id = query.data.split("_", 2)[2]
+            await swap_back_handler(query, swap_id, chat_id, context)
+
         elif query.data == "back_to_main":
             await back_to_main_handler(query, topic_id, context)
 
@@ -250,6 +254,65 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
     except Exception as e:
         logger.error(f"Error in create_swap_proposal: {e}")
         await query.answer("Ошибка при создании предложения обмена", show_alert=True)
+
+
+# Новая функция: Обработчик возврата к списку пользователей из предложения обмена
+async def swap_back_handler(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
+    """Возврат к списку пользователей из предложения обмена (только для инициатора)"""
+    try:
+        swap_data = queue_manager.get_pending_swap(swap_id)
+        if not swap_data:
+            await query.answer("Предложение обмена устарело", show_alert=True)
+            return
+
+        # Проверяем, что нажимает инициатор
+        if query.from_user.id != swap_data['user1_id']:
+            await query.answer("Это кнопка только для инициатора обмена!", show_alert=True)
+            return
+
+        # Отменяем таймер удаления предложения
+        job_name = f"swap_timeout_{swap_id}"
+        current_jobs = context.job_queue.get_jobs_by_name(job_name)
+        for job in current_jobs:
+            job.schedule_removal()
+            logger.info(f"Cancelled timeout job for swap {swap_id}")
+
+        # Удаляем данные об обмене
+        queue_manager.remove_pending_swap(swap_id)
+
+        # Возвращаем сообщение к списку пользователей
+        topic_id = swap_data['topic_id']
+        user_id = swap_data['user1_id']  # Инициатор
+        queue = queue_manager.queues[topic_id]
+
+        initiator_username = query.from_user.username or query.from_user.first_name
+        text = f"Пользователь @{initiator_username} хочет поменяться местами. Выберите пользователя:\n\n⏰ Сообщение удалится через 1 минуту"
+
+        await query.edit_message_text(
+            text=text,
+            reply_markup=get_swap_users_keyboard(queue, user_id, user_id)
+        )
+
+        # Создаем уникальный ID для сообщения выбора (selection_id)
+        selection_id = f"selection_{chat_id}_{topic_id}_{user_id}_{query.message.message_id}"
+
+        # Запускаем новый таймер на удаление сообщения выбора через 60 секунд
+        context.job_queue.run_once(
+            callback_delete_selection,
+            60,
+            data={
+                'chat_id': chat_id,
+                'message_id': query.message.message_id,
+                'selection_id': selection_id
+            },
+            name=f"selection_timeout_{selection_id}"
+        )
+
+        logger.info(f"Returned to swap selection for swap {swap_id}, new timeout scheduled")
+
+    except Exception as e:
+        logger.error(f"Error in swap_back_handler: {e}")
+        await query.answer("Ошибка при возврате к выбору", show_alert=True)
 
 
 async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):

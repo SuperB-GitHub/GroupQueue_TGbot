@@ -15,7 +15,8 @@ def get_swap_confirmation_keyboard(swap_id):
     """Клавиатура подтверждения обмена"""
     keyboard = [
         [InlineKeyboardButton("✅ Да", callback_data=f"swap_confirm_{swap_id}")],
-        [InlineKeyboardButton("❌ Нет", callback_data=f"swap_cancel_{swap_id}")]
+        [InlineKeyboardButton("❌ Нет", callback_data=f"swap_cancel_{swap_id}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data=f"swap_back_{swap_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
