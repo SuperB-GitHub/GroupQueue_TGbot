@@ -16,6 +16,7 @@ class PersistentQueueManager:
         self.queues = defaultdict(list)
         self.pending_swaps = {}
         self.queue_message_ids = defaultdict(lambda: None)  # topic_id: message_id основного сообщения
+        self.known_users = defaultdict(list)  # chat_id: list of known users
         self.load_data()
 
     def load_data(self):
@@ -30,6 +31,10 @@ class PersistentQueueManager:
                     self.pending_swaps = data.get('pending_swaps', {})
                     # Восстанавливаем queue_message_ids
                     self.queue_message_ids = {int(k): v for k, v in data.get('queue_message_ids', {}).items()}
+                    # Восстанавливаем known_users
+                    self.known_users = defaultdict(list)
+                    for chat_id_str, users in data.get('known_users', {}).items():
+                        self.known_users[int(chat_id_str)] = users
                 logger.info(f"Данные загружены из {self.filename}")
         except Exception as e:
             logger.error(f"Ошибка при загрузке данных: {e}")
@@ -40,11 +45,13 @@ class PersistentQueueManager:
             # Конвертируем topic_id в строки для JSON
             queues_serializable = {str(k): v for k, v in self.queues.items()}
             queue_message_ids_serializable = {str(k): v for k, v in self.queue_message_ids.items()}
+            known_users_serializable = {str(k): v for k, v in self.known_users.items()}
 
             data = {
                 'queues': queues_serializable,
                 'pending_swaps': self.pending_swaps,
                 'queue_message_ids': queue_message_ids_serializable,
+                'known_users': known_users_serializable,
                 'last_save': datetime.now().isoformat()
             }
 
@@ -99,6 +106,16 @@ class PersistentQueueManager:
                 return True
         return False
 
+    def remove_user_by_username(self, topic_id, username):
+        queue = self.queues[topic_id]
+        for i, user in enumerate(queue):
+            if user['username'] == username:
+                queue.pop(i)
+                self.save_data()
+                logger.info(f"User @{username} removed from queue {topic_id}")
+                return True
+        return False
+
     def swap_users(self, topic_id, user1_id, user2_id):
         queue = self.queues[topic_id]
         user1_index = None
@@ -149,6 +166,25 @@ class PersistentQueueManager:
 
     def get_pending_swap(self, swap_id):
         return self.pending_swaps.get(swap_id)
+
+    def add_known_user(self, chat_id, user_id, first_name, last_name, username):
+        """Добавление известного пользователя из сообщений"""
+        users = self.known_users[chat_id]
+        if not any(u['user_id'] == user_id for u in users):
+            user_data = {
+                'user_id': user_id,
+                'first_name': first_name or '',
+                'last_name': last_name or '',
+                'username': username or '',
+                'display_name': f"{first_name or ''} {last_name or ''}".strip() or f"User_{user_id}"
+            }
+            users.append(user_data)
+            self.save_data()
+            logger.info(f"Known user {user_id} added for chat {chat_id}")
+
+    def get_known_users(self, chat_id):
+        """Получение списка известных пользователей"""
+        return self.known_users[chat_id]
 
 
 # Создаем глобальный экземпляр менеджера очередей

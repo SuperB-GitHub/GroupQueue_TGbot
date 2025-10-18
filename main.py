@@ -2,7 +2,7 @@ import logging
 import atexit
 import os
 from dotenv import load_dotenv
-from telegram.ext import Application
+from telegram.ext import Application, MessageHandler, filters
 
 from queue_manager import queue_manager
 from command_handlers import register_command_handlers
@@ -33,6 +33,19 @@ async def test_job(context):
     logger.info("✅ Job queue is working! Test job executed.")
 
 
+async def collect_users(update, context):
+    """Сбор известных пользователей из сообщений"""
+    if update.message and update.message.chat.type != 'private':
+        user = update.message.from_user
+        queue_manager.add_known_user(
+            update.message.chat_id,
+            user.id,
+            user.first_name,
+            user.last_name,
+            user.username
+        )
+
+
 def main():
     """Основная функция"""
     TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -45,6 +58,9 @@ def main():
     # Регистрация обработчиков из модулей
     register_command_handlers(application)
     register_callback_handlers(application)
+
+    # Добавляем handler для сбора пользователей
+    application.add_handler(MessageHandler(filters.ALL, collect_users))
 
     # Настройка периодических задач
     job_queue = application.job_queue

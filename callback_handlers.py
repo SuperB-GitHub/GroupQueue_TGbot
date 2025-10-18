@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes, CallbackQueryHandler
 from telegram.error import TimedOut, NetworkError
 
 from queue_manager import queue_manager
-from keyboards import get_main_keyboard, get_swap_confirmation_keyboard, get_swap_users_keyboard
+from keyboards import get_main_keyboard, get_swap_confirmation_keyboard, get_swap_users_keyboard, get_add_users_keyboard
 from utils import safe_edit_message, callback_delete_proposal, callback_delete_selection, callback_delete_success, callback_delete_cancel
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif query.data == "back_to_main":
             await back_to_main_handler(query, topic_id, context)
+
+        elif query.data == "start_add_user":
+            await start_add_user_handler(query, topic_id, chat_id, context)
+
+        elif query.data.startswith("add_page_"):
+            parts = query.data.split("_")
+            page = int(parts[2])
+            topic_id = int(parts[3])  # topic_id передается в callback_data
+            await add_page_handler(query, chat_id, topic_id, page, context)
+
+        elif query.data.startswith("add_user_"):
+            parts = query.data.split("_")
+            target_user_id = int(parts[2])
+            topic_id = int(parts[3])  # topic_id передается
+            await add_user_handler(query, topic_id, target_user_id, chat_id, context)
+
+        elif query.data == "noop":
+            pass  # Для статической кнопки страницы
 
     except Exception as e:
         logger.error(f"Error in callback handler: {e}")
@@ -192,84 +210,72 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
             await query.answer("Это меню только для инициатора обмена!", show_alert=True)
             return
 
-        # Отменяем таймер удаления сообщения выбора
-        selection_id = f"selection_{chat_id}_{topic_id}_{user1_id}_{query.message.message_id}"
-        current_jobs = context.job_queue.get_jobs_by_name(f"selection_timeout_{selection_id}")
-        for job in current_jobs:
-            job.schedule_removal()
-            logger.info(f"Cancelled selection timeout for {selection_id}")
-
-        queue = queue_manager.queues[topic_id]
+        # Удаляем сообщение с выбором пользователя
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=query.message.message_id)
+        except Exception as e:
+            logger.error(f"Error deleting selection message: {e}")
 
         # Находим данные пользователей
-        user1_data = next((u for u in queue if u['user_id'] == user1_id), None)
-        user2_data = next((u for u in queue if u['user_id'] == user2_id), None)
+        queue = queue_manager.queues[topic_id]
+        user1 = next((u for u in queue if u['user_id'] == user1_id), None)
+        user2 = next((u for u in queue if u['user_id'] == user2_id), None)
 
-        if not user1_data or not user2_data:
-            await query.answer("Ошибка: пользователь не найден", show_alert=True)
+        if not user1 or not user2:
+            await query.answer("Пользователь не найден в очереди", show_alert=True)
             return
 
         # Создаем уникальный ID для обмена
-        swap_id = f"{chat_id}_{topic_id}_{user1_id}_{user2_id}"
+        swap_id = f"chat{chat_id}_topic{topic_id}_{user1_id}_{user2_id}"
 
-        # Сохраняем данные об обмене
+        # Сохраняем данные обмена
         swap_data = {
             'topic_id': topic_id,
             'user1_id': user1_id,
             'user2_id': user2_id,
-            'user1_name': user1_data['display_name'],
-            'user2_name': user2_data['display_name'],
-            'user1_username': user1_data['username'],
-            'user2_username': user2_data['username'],
-            'chat_id': chat_id,
-            'proposal_message_id': query.message.message_id
+            'user1_name': user1['display_name'],
+            'user2_name': user2['display_name'],
+            'user1_username': user1['username'],
+            'user2_username': user2['username'],
+            'chat_id': chat_id
         }
-
         queue_manager.add_pending_swap(swap_id, swap_data)
 
-        # Обновляем сообщение со списком на предложение обмена с пингом
-        ping = f"@{user2_data['username']}" if user2_data['username'] else user2_data['display_name']
-        await query.edit_message_text(
-            f"🔄 Предложение обмена\n\n"
-            f"{user1_data['display_name']} хочет поменяться местами с {user2_data['display_name']}\n\n"
-            f"{ping}, вы согласны на обмен?\n\n"
-            f"⏰ Сообщение удалится через 1 минуту",
-            reply_markup=get_swap_confirmation_keyboard(swap_id)
+        # Отправляем предложение второму пользователю
+        proposal_text = f"@{user2['username']} или {user2['display_name']}, пользователь @{user1['username']} или {user1['display_name']} предлагает обмен местами в очереди.\n\n⏰ Сообщение удалится через 1 минуту"
+        sent_proposal = await context.bot.send_message(
+            chat_id=chat_id,
+            text=proposal_text,
+            reply_markup=get_swap_confirmation_keyboard(swap_id),
+            message_thread_id=topic_id
         )
 
-        # Запускаем таймер на удаление через 60 секунд
+        # Обновляем swap_data с ID сообщения
+        swap_data['proposal_message_id'] = sent_proposal.message_id
+        queue_manager.add_pending_swap(swap_id, swap_data)  # Перезаписываем
+
+        # Запускаем таймер на удаление предложения через 60 секунд
         context.job_queue.run_once(
             callback_delete_proposal,
             60,
             data={
                 'chat_id': chat_id,
-                'message_id': query.message.message_id,
+                'message_id': sent_proposal.message_id,
                 'swap_id': swap_id
             },
             name=f"swap_timeout_{swap_id}"
         )
 
-        logger.info(f"Swap proposal created with ID: {swap_id}, timeout scheduled for 60 seconds")
+        logger.info(f"Swap proposal created for {swap_id}, timeout scheduled")
 
     except Exception as e:
         logger.error(f"Error in create_swap_proposal: {e}")
         await query.answer("Ошибка при создании предложения обмена", show_alert=True)
 
 
-# Новая функция: Обработчик возврата к списку пользователей из предложения обмена
 async def swap_back_handler(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
-    """Возврат к списку пользователей из предложения обмена (только для инициатора)"""
+    """Обработчик кнопки Назад в предложении обмена"""
     try:
-        swap_data = queue_manager.get_pending_swap(swap_id)
-        if not swap_data:
-            await query.answer("Предложение обмена устарело", show_alert=True)
-            return
-
-        # Проверяем, что нажимает инициатор
-        if query.from_user.id != swap_data['user1_id']:
-            await query.answer("Это кнопка только для инициатора обмена!", show_alert=True)
-            return
-
         # Отменяем таймер удаления предложения
         job_name = f"swap_timeout_{swap_id}"
         current_jobs = context.job_queue.get_jobs_by_name(job_name)
@@ -280,13 +286,14 @@ async def swap_back_handler(query, swap_id, chat_id, context: ContextTypes.DEFAU
         # Удаляем данные об обмене
         queue_manager.remove_pending_swap(swap_id)
 
-        # Возвращаем сообщение к списку пользователей
-        topic_id = swap_data['topic_id']
-        user_id = swap_data['user1_id']  # Инициатор
+        # Возвращаем к списку пользователей для выбора
+        topic_id = query.message.message_thread_id
+        user_id = query.from_user.id
         queue = queue_manager.queues[topic_id]
 
-        initiator_username = query.from_user.username or query.from_user.first_name
-        text = f"Пользователь @{initiator_username} хочет поменяться местами. Выберите пользователя:\n\n⏰ Сообщение удалится через 1 минуту"
+        initiator_username = query.from_user.username
+        initiator_name = query.from_user.first_name
+        text = f"Пользователь {initiator_name} @{initiator_username} хочет поменяться местами. Выберите пользователя:\n\n⏰ Сообщение удалится через 1 минуту"
 
         await query.edit_message_text(
             text=text,
@@ -473,6 +480,126 @@ async def back_to_main_handler(query, topic_id, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Error in back_to_main: {e}")
         await query.answer("Ошибка при возврате в меню", show_alert=True)
+
+
+async def start_add_user_handler(query, topic_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
+    """Начало добавления пользователя - показ списка с пагинацией"""
+    try:
+        # Проверяем, есть ли известные пользователи
+        if not queue_manager.get_known_users(chat_id):
+            await query.answer("Нет известных пользователей. Пусть участники напишут что-то в чат, чтобы бот их увидел.", show_alert=True)
+            return
+
+        # Проверяем доступность JobQueue
+        if not context.job_queue:
+            logger.error("JobQueue is not available! Cannot set timeout for add selection")
+            await query.answer("Ошибка: система временных задач недоступна", show_alert=True)
+            return
+
+        text = "Выберите пользователя для добавления в очередь:\n\n⏰ Сообщение удалится через 1 минуту"
+        sent_message = await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=get_add_users_keyboard(chat_id, topic_id, page=0),
+            message_thread_id=topic_id
+        )
+
+        # Создаем уникальный ID для сообщения выбора
+        selection_id = f"selection_{chat_id}_{topic_id}_{query.from_user.id}_{sent_message.message_id}"
+
+        # Запускаем таймер на удаление через 60 секунд
+        context.job_queue.run_once(
+            callback_delete_selection,
+            60,
+            data={
+                'chat_id': chat_id,
+                'message_id': sent_message.message_id,
+                'selection_id': selection_id
+            },
+            name=f"selection_timeout_{selection_id}"
+        )
+
+        logger.info(f"Add user selection message created, timeout scheduled")
+
+    except Exception as e:
+        logger.error(f"Error in start_add_user: {e}")
+        await query.answer("Ошибка при начале добавления", show_alert=True)
+
+
+async def add_page_handler(query, chat_id, topic_id, page, context: ContextTypes.DEFAULT_TYPE):
+    """Переключение страницы в списке пользователей для добавления"""
+    try:
+        # Отменяем текущий таймер
+        selection_id = f"selection_{chat_id}_{topic_id}_{query.from_user.id}_{query.message.message_id}"
+        current_jobs = context.job_queue.get_jobs_by_name(f"selection_timeout_{selection_id}")
+        for job in current_jobs:
+            job.schedule_removal()
+
+        # Обновляем сообщение с новой страницей
+        text = "Выберите пользователя для добавления в очередь:\n\n⏰ Сообщение удалится через 1 минуту"
+        await query.edit_message_text(
+            text=text,
+            reply_markup=get_add_users_keyboard(chat_id, topic_id, page)
+        )
+
+        # Запускаем новый таймер
+        context.job_queue.run_once(
+            callback_delete_selection,
+            60,
+            data={
+                'chat_id': chat_id,
+                'message_id': query.message.message_id,
+                'selection_id': selection_id
+            },
+            name=f"selection_timeout_{selection_id}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in add_page_handler: {e}")
+        await query.answer("Ошибка при переключении страницы", show_alert=True)
+
+
+async def add_user_handler(query, topic_id, target_user_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
+    """Добавление выбранного пользователя в очередь"""
+    try:
+        # Отменяем таймер
+        selection_id = f"selection_{chat_id}_{topic_id}_{query.from_user.id}_{query.message.message_id}"
+        current_jobs = context.job_queue.get_jobs_by_name(f"selection_timeout_{selection_id}")
+        for job in current_jobs:
+            job.schedule_removal()
+
+        # Находим данные пользователя из known_users
+        users = queue_manager.get_known_users(chat_id)
+        target_user = next((u for u in users if u['user_id'] == target_user_id), None)
+        if not target_user:
+            await query.answer("Пользователь не найден", show_alert=True)
+            return
+
+        # Добавляем в очередь
+        success = queue_manager.add_user_to_queue(
+            topic_id,
+            target_user['user_id'],
+            target_user['first_name'],
+            target_user['last_name'],
+            target_user['username']
+        )
+
+        if success:
+            # Обновляем основное сообщение
+            main_message_id = queue_manager.get_queue_message_id(topic_id)
+            if main_message_id:
+                await safe_edit_message(
+                    context, chat_id, main_message_id,
+                    queue_manager.get_queue_text(topic_id), get_main_keyboard()
+                )
+            logger.info(f"User {target_user_id} added to queue by {query.from_user.id}")
+
+        # Удаляем сообщение со списком
+        await context.bot.delete_message(chat_id=chat_id, message_id=query.message.message_id)
+
+    except Exception as e:
+        logger.error(f"Error in add_user_handler: {e}")
+        await query.answer("Ошибка при добавлении пользователя", show_alert=True)
 
 
 def register_callback_handlers(application):
