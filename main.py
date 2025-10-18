@@ -50,13 +50,6 @@ def main():
     job_queue = application.job_queue
 
     if job_queue:
-        # Тестовая задача - каждые 30 секунд
-        job_queue.run_repeating(
-            test_job,
-            interval=30,
-            first=5
-        )
-
         # Автосохранение каждые 5 минут
         job_queue.run_repeating(
             callback_auto_save,
