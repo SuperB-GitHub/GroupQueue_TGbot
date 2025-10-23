@@ -5,7 +5,7 @@ def get_main_keyboard():
     """Клавиатура основного меню"""
     keyboard = [
         [InlineKeyboardButton("➕ Добавиться в очередь", callback_data="add_to_queue")],
-        [InlineKeyboardButton("➕ Добавить в очередь", callback_data="start_add_user")],
+        [InlineKeyboardButton("👤 Добавить пользователя", callback_data="start_add_user")],
         [InlineKeyboardButton("➖ Выйти из очереди", callback_data="remove_from_queue")],
         [InlineKeyboardButton("🔄 Поменяться местами", callback_data="start_swap")]
     ]
@@ -42,4 +42,12 @@ def get_swap_users_keyboard(queue, current_user_id, initiator_id):
             )])
 
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_add_user_keyboard(add_id):
+    """Клавиатура для добавления пользователя с кнопкой Назад"""
+    keyboard = [
+        [InlineKeyboardButton("🔙 Назад", callback_data=f"add_back_{add_id}")]
+    ]
     return InlineKeyboardMarkup(keyboard)

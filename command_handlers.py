@@ -27,7 +27,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         user.id,
                         user.first_name,
                         user.last_name,
-                        user.username
+                        user.username,
+                        user.is_bot
                     )
             except Exception as e:
                 logger.error(f"Error collecting admins in start: {e}")
@@ -63,7 +64,8 @@ async def init_queue_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         user.id,
                         user.first_name,
                         user.last_name,
-                        user.username
+                        user.username,
+                        user.is_bot
                     )
             except Exception as e:
                 logger.error(f"Error collecting admins in init: {e}")

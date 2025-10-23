@@ -28,11 +28,6 @@ async def callback_auto_save(context):
         logger.error(f"Error in auto-save: {e}")
 
 
-async def test_job(context):
-    """Тестовая задача для проверки job_queue"""
-    logger.info("✅ Job queue is working! Test job executed.")
-
-
 async def collect_users(update, context):
     """Сбор известных пользователей из сообщений"""
     if update.message and update.message.chat.type != 'private':
@@ -42,7 +37,8 @@ async def collect_users(update, context):
             user.id,
             user.first_name,
             user.last_name,
-            user.username
+            user.username,
+            user.is_bot
         )
 
 
