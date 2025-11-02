@@ -4,10 +4,12 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 def get_main_keyboard():
     """Клавиатура основного меню"""
     keyboard = [
-        [InlineKeyboardButton("➕ Добавиться в очередь", callback_data="add_to_queue")],
-        [InlineKeyboardButton("👤 Добавить пользователя", callback_data="start_add_user")],
-        [InlineKeyboardButton("➖ Выйти из очереди", callback_data="remove_from_queue")],
-        [InlineKeyboardButton("🔄 Поменяться местами", callback_data="start_swap")]
+        [InlineKeyboardButton("⬆️ Добавиться", callback_data="add_to_queue"),
+         InlineKeyboardButton("⬇️ Выйти", callback_data="remove_from_queue")],
+        [InlineKeyboardButton("🔄 Обмен", callback_data="start_swap"),
+         InlineKeyboardButton("⤵️ Отдать", callback_data="start_give_queue"),
+         InlineKeyboardButton("👨‍👦 Добавить", callback_data="start_add_user")],
+        [InlineKeyboardButton("ℹ️ Информация", callback_data="show_info")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -27,12 +29,10 @@ def get_swap_users_keyboard(queue, current_user_id, initiator_id):
     keyboard = []
     for user in queue:
         if user['user_id'] != current_user_id:
-            # Ограничиваем длину текста кнопки для предотвращения ошибок
             button_text = user['display_name']
             if user['username']:
                 button_text += f" (@{user['username']})"
 
-            # Обрезаем слишком длинные имена
             if len(button_text) > 50:
                 button_text = button_text[:47] + "..."
 
@@ -46,7 +46,7 @@ def get_swap_users_keyboard(queue, current_user_id, initiator_id):
 
 
 def get_add_user_keyboard(add_id):
-    """Клавиатура для добавления пользователя с кнопкой Назад"""
+    """Клавиатура для ввода username с кнопкой Назад"""
     keyboard = [
         [InlineKeyboardButton("🔙 Назад", callback_data=f"add_back_{add_id}")]
     ]
