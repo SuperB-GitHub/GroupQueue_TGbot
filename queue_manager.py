@@ -34,7 +34,7 @@ class PersistentQueueManager:
                     # Восстанавливаем known_users
                     self.known_users = defaultdict(list)
                     for chat_id_str, users in data.get('known_users', {}).items():
-                        self.known_users[int(chat_id_str)] = users
+                        self.known_users[int(chat_id_str)] = [dict(u, is_bot=u.get('is_bot', False)) for u in users]
                 logger.info(f"Данные загружены из {self.filename}")
         except Exception as e:
             logger.error(f"Ошибка при загрузке данных: {e}")
@@ -167,7 +167,7 @@ class PersistentQueueManager:
     def get_pending_swap(self, swap_id):
         return self.pending_swaps.get(swap_id)
 
-    def add_known_user(self, chat_id, user_id, first_name, last_name, username):
+    def add_known_user(self, chat_id, user_id, first_name, last_name, username, is_bot=False):
         """Добавление известного пользователя из сообщений"""
         users = self.known_users[chat_id]
         if not any(u['user_id'] == user_id for u in users):
@@ -176,7 +176,8 @@ class PersistentQueueManager:
                 'first_name': first_name or '',
                 'last_name': last_name or '',
                 'username': username or '',
-                'display_name': f"{first_name or ''} {last_name or ''}".strip() or f"User_{user_id}"
+                'display_name': f"{first_name or ''} {last_name or ''}".strip() or f"User_{user_id}",
+                'is_bot': is_bot
             }
             users.append(user_data)
             self.save_data()

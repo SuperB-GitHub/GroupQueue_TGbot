@@ -133,3 +133,34 @@ async def callback_delete_cancel(context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Successfully deleted cancel message {message_id}")
     except Exception as e:
         logger.error(f"Failed to delete cancel message {message_id}: {e}")
+
+
+async def callback_delete_add_user(context: ContextTypes.DEFAULT_TYPE):
+    """Удаление сообщения добавления пользователя по таймеру через 60 секунд"""
+    job = context.job
+    if not job:
+        logger.error("No job context in callback_delete_add_user")
+        return
+
+    job_data = job.data
+    chat_id = job_data['chat_id']
+    message_id = job_data['message_id']
+    add_id = job_data['add_id']
+
+    logger.info(f"Timeout callback triggered for add_user {add_id}, deleting message {message_id}")
+
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        logger.info(f"Successfully deleted add_user message {message_id}")
+    except Exception as e:
+        logger.error(f"Failed to delete add_user message {message_id}: {e}")
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="❌ Время для ввода истекло.",
+                reply_markup=None
+            )
+            logger.info(f"Edited expired add_user message {message_id}")
+        except Exception as edit_error:
+            logger.error(f"Failed to edit expired add_user message {message_id}: {edit_error}")
