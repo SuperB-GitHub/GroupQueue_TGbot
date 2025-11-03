@@ -3,10 +3,9 @@ import atexit
 import os
 from dotenv import load_dotenv
 from telegram.ext import Application, MessageHandler, filters
-
 from queue_manager import queue_manager
 from command_handlers import register_command_handlers
-from callback_handlers import register_callback_handlers
+from handlers_processing import register_callback_handlers
 
 # Загрузка переменных окружения
 load_dotenv()
