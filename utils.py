@@ -1,11 +1,9 @@
 import logging
 from telegram.ext import ContextTypes
-from telegram.error import TimedOut, NetworkError
 
 from queue_manager import queue_manager  # Импорт, если нужен для таймеров
 
 logger = logging.getLogger(__name__)
-
 
 async def safe_edit_message(context, chat_id, message_id, text, reply_markup):
     """Безопасное обновление сообщения с обработкой ошибок"""

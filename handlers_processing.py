@@ -5,6 +5,7 @@ from callback_handlers.add_yourself_handler import *
 from callback_handlers.back_handler import *
 from callback_handlers.remove_handler import *
 from callback_handlers.swap_handler import *
+from callback_handlers.give_handler import * 
 logger = logging.getLogger(__name__)
 
 
@@ -70,6 +71,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif query.data.startswith("add_back_"):
             add_id = query.data.split("_", 2)[2]
             await add_back_handler(query, add_id, chat_id, context)
+
+        elif query.data == "start_give_queue":
+            await start_give_queue_handler(query, topic_id, user_id, chat_id, context)
+
+        elif query.data.startswith("give_confirm_"):
+            give_id = query.data.split("_", 2)[2]
+            await give_confirm_handler(query, give_id, chat_id, context)
+
+        elif query.data.startswith("give_cancel_"):
+            give_id = query.data.split("_", 2)[2]
+            await give_cancel_handler(query, give_id, chat_id, context)
+
+        elif query.data.startswith("give_back_"):
+            give_id = query.data.split("_", 2)[2]
+            await give_back_handler(query, give_id, chat_id, context)
+
+        elif query.data.startswith("give_take_"):
+            give_id = query.data.split("_", 2)[2]
+            await give_take_handler(query, give_id, chat_id, context)
 
     except Exception as e:
         logger.error(f"Error in callback handler: {e}")

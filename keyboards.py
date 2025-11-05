@@ -14,6 +14,24 @@ def get_main_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_give_confirmation_keyboard(give_id: str):
+    """Клавиатура подтверждения отдачи места"""
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data=f"give_confirm_{give_id}")],
+        [InlineKeyboardButton("❌ Нет", callback_data=f"give_cancel_{give_id}")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_give_selection_keyboard(give_id: str):
+    """Клавиатура выбора места для взятия"""
+    keyboard = [
+        [InlineKeyboardButton("🎯 Взять место", callback_data=f"give_take_{give_id}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data=f"give_back_{give_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_swap_confirmation_keyboard(swap_id):
     """Клавиатура подтверждения обмена"""
     keyboard = [
