@@ -156,11 +156,26 @@ async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Проверяем, является ли пользователь админом
             member = await context.bot.get_chat_member(chat_id, user_id)
             if member.status not in ['administrator', 'creator']:
-                await update.message.reply_text("❌ Только администраторы могут использовать /remove.")
+                # Toast-уведомление вместо постоянного сообщения
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Только администраторы могут использовать /remove.",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=topic_id
+                )
+                # Удаляем сообщение с командой
+                await update.message.delete()
                 return
 
             if not context.args:
-                await update.message.reply_text("❌ Укажите @username для удаления.")
+                # Toast-уведомление
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Укажите @username для удаления.",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=topic_id
+                )
+                await update.message.delete()
                 return
 
             username = context.args[0].lstrip('@')
@@ -175,14 +190,39 @@ async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                         context, chat_id, main_message_id,
                         queue_manager.get_queue_text(topic_id), get_main_keyboard()
                     )
+                # Toast-уведомление об успехе
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"✅ Пользователь @{username} удалён из очереди.",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=topic_id
+                )
                 logger.info(f"User @{username} removed by admin {user_id}")
             else:
-                await update.message.reply_text(f"❌ Пользователь @{username} не найден в очереди.")
+                # Toast-уведомление об ошибке
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"❌ Пользователь @{username} не найден в очереди.",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=topic_id
+                )
 
             # Удаляем сообщение с командой /remove
             await update.message.delete()
     except Exception as e:
         logger.error(f"Error in remove command: {e}")
+        try:
+            # Toast-уведомление об общей ошибке
+            if update.message:
+                await context.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text="❌ Произошла ошибка при выполнении команды.",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=update.message.message_thread_id if update.message.is_topic_message else None
+                )
+                await update.message.delete()
+        except:
+            pass
 
 
 async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -208,13 +248,28 @@ async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             try:
                 member = await context.bot.get_chat_member(chat_id, user_id)
                 if member.status not in ['administrator', 'creator']:
+                    # Toast-уведомление о недостатке прав
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="❌ Только администраторы могут использовать /insert.",
+                        reply_to_message_id=update.message.message_id,
+                        message_thread_id=topic_id
+                    )
                     await update.message.delete()
                     return
-            except:
+            except Exception as admin_error:
+                logger.error(f"Error checking admin status: {admin_error}")
                 await update.message.delete()
                 return
 
             if not context.args or len(context.args) < 2:
+                # Toast-уведомление о неправильном формате
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Формат команды: /insert @username позиция",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=topic_id
+                )
                 await update.message.delete()
                 return
 
@@ -223,13 +278,27 @@ async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             try:
                 position = int(context.args[1])
                 if position < 1:
+                    # Toast-уведомление о неправильной позиции
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="❌ Позиция должна быть положительным числом.",
+                        reply_to_message_id=update.message.message_id,
+                        message_thread_id=topic_id
+                    )
                     await update.message.delete()
                     return
             except ValueError:
+                # Toast-уведомление о неправильной позиции
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Позиция должна быть числом.",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=topic_id
+                )
                 await update.message.delete()
                 return
 
-            # Ищем пользователя в known_users или пытаемся получить его данные
+            # Ищем пользователя в known_users
             target_user = None
             known_users = queue_manager.get_known_users(chat_id)
             
@@ -239,8 +308,15 @@ async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                     target_user = user
                     break
             
-            # Если не нашли в known_users, пользователь не известен боту
+            # Если не нашли в known_users
             if not target_user:
+                # Toast-уведомление
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"❌ Пользователь @{username} не найден среди известных.",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=topic_id
+                )
                 await update.message.delete()
                 return
 
@@ -249,11 +325,17 @@ async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Проверяем, не в очереди ли уже пользователь
             for existing_user in queue:
                 if existing_user['user_id'] == target_user['user_id']:
+                    # Toast-уведомление
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"❌ Пользователь @{username} уже в очереди.",
+                        reply_to_message_id=update.message.message_id,
+                        message_thread_id=topic_id
+                    )
                     await update.message.delete()
                     return
 
             # Вставляем пользователя на указанную позицию
-            # Если позиция больше длины очереди, вставляем в конец
             insert_position = min(position - 1, len(queue))
 
             user_data = {
@@ -278,6 +360,14 @@ async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except:
                     pass
 
+            # Toast-уведомление об успехе
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"✅ Пользователь @{username} вставлен на позицию {insert_position + 1}.",
+                reply_to_message_id=update.message.message_id,
+                message_thread_id=topic_id
+            )
+            
             logger.info(f"User @{username} inserted at position {insert_position + 1} by admin {user_id}")
             
             # Удаляем сообщение с командой /insert
@@ -286,7 +376,15 @@ async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"Error in insert command: {e}")
         try:
-            await update.message.delete()
+            if update.message:
+                # Toast-уведомление об общей ошибке
+                await context.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text="❌ Произошла ошибка при выполнении команды.",
+                    reply_to_message_id=update.message.message_id,
+                    message_thread_id=update.message.message_thread_id if update.message.is_topic_message else None
+                )
+                await update.message.delete()
         except:
             pass
 

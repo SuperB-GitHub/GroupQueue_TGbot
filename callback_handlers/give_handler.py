@@ -143,6 +143,11 @@ async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
 
         taker_id = query.from_user.id
         topic_id = session['topic_id']
+        
+        # ПРОВЕРКА: инициатор не может взять своё же место!
+        if taker_id == session['giver_id']:
+            await query.answer("Вы не можете взять своё же место!")
+            return
 
         # Отмена таймера
         _cancel_give_timeout(context, give_id)
@@ -154,7 +159,7 @@ async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
         queue = queue_manager.queues[topic_id]
         giver_pos = next((i for i, u in enumerate(queue) if u['user_id'] == session['giver_id']), None)
         if giver_pos is None:
-            await query.edit_message_text("Место уже недоступно.")
+            await query.answer("Место уже недоступно.")
             _cleanup_give_session(give_id)
             return
 

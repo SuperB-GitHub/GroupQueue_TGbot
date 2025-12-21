@@ -226,7 +226,7 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
             # Формируем текст в указанном формате
             user1Mention = f"{swap_data['user1_name']} (@{swap_data['user1_username']})" if swap_data['user1_username'] else swap_data['user1_name']
             user2Mention = f"{swap_data['user2_name']} (@{swap_data['user2_username']})" if swap_data['user2_username'] else swap_data['user2_name']
-            success_text = f"✅ {user1Mention} обменялся с {user2Mention}!\n\n⏰ Сообщение удалится через 10 минут"
+            success_text = f"✅ {user1Mention} обменялся с {user2Mention}!\n\n⏰ Сообщение удалится через 1 минуту"
 
             # Обновляем сообщение с предложением обмена
             try:
@@ -237,10 +237,10 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
             except Exception as e:
                 logger.error(f"Error updating confirmation message: {e}")
 
-            # Запускаем таймер на удаление через 10 минут (600 секунд)
+            # Запускаем таймер на удаление через 1 минуту (60 секунд)
             context.job_queue.run_once(
                 callback_delete_success,
-                600,
+                60,
                 data={
                     'chat_id': chat_id,
                     'message_id': query.message.message_id
@@ -290,16 +290,16 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
         # Обновляем сообщение с отменой
         try:
             await query.edit_message_text(
-                "❌ Обмен отменен\n\n⏰ Сообщение удалится через 2 минуты",
+                "❌ Обмен отменен\n\n⏰ Сообщение удалится через 10 секунд",
                 reply_markup=None
             )
         except Exception as e:
             logger.error(f"Error updating cancellation message: {e}")
 
-        # Запускаем таймер на удаление через 2 минуты (120 секунд)
+        # Запускаем таймер на удаление через 10 секунд (10 секунд)
         context.job_queue.run_once(
             callback_delete_cancel,
-            120,
+            10,
             data={
                 'chat_id': chat_id,
                 'message_id': query.message.message_id
