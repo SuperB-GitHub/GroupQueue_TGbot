@@ -1,5 +1,9 @@
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters
 from telegram.error import TimedOut, NetworkError
+from telegram import Update
+from telegram.ext import ContextTypes
+import logging
+
 from callback_handlers.add_user_handler import *
 from callback_handlers.add_yourself_handler import *
 from callback_handlers.back_handler import *
@@ -7,6 +11,8 @@ from callback_handlers.remove_handler import *
 from callback_handlers.swap_handler import *
 from callback_handlers.give_handler import * 
 from callback_handlers.info_handler import * 
+from queue_manager import queue_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +40,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not topic_id:
         await query.answer("Эта команда работает только в темах/топиках")
         return
+
+    # Собираем пользователя из callback в known_users
+    user = query.from_user
+    queue_manager.add_known_user(
+        chat_id,
+        user.id,
+        user.first_name,
+        user.last_name,
+        user.username,
+        user.is_bot
+    )
 
     try:
         if query.data == "add_to_queue":

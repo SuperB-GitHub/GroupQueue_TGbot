@@ -1,4 +1,3 @@
-from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 from queue_manager import queue_manager
@@ -169,7 +168,6 @@ async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
             'last_name': query.from_user.last_name or '',
             'username': query.from_user.username or '',
             'display_name': f"{query.from_user.first_name or ''} {query.from_user.last_name or ''}".strip() or f"User_{taker_id}",
-            'joined_at': datetime.now().isoformat()
         }
         queue.insert(giver_pos, taker_data)
 

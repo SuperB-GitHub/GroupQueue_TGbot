@@ -28,11 +28,29 @@ async def callback_auto_save(context):
 
 
 async def collect_users(update, context):
-    """Сбор известных пользователей из сообщений"""
-    if update.message and update.message.chat.type != 'private':
+    """Сбор известных пользователей из всех типов сообщений"""
+    chat_id = None
+    user = None
+    
+    # Обработка обычных сообщений
+    if update.message:
+        chat_id = update.message.chat_id
         user = update.message.from_user
+    # Обработка callback запросов
+    elif update.callback_query and update.callback_query.message:
+        chat_id = update.callback_query.message.chat_id
+        user = update.callback_query.from_user
+    # Обработка inline запросов (если будут)
+    elif update.inline_query:
+        chat_id = update.inline_query.from_user.id
+        user = update.inline_query.from_user
+    else:
+        return
+    
+    # Добавляем пользователя в известные
+    if user and chat_id:
         queue_manager.add_known_user(
-            update.message.chat_id,
+            chat_id,
             user.id,
             user.first_name,
             user.last_name,

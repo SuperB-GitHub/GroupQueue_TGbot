@@ -15,8 +15,9 @@ class PersistentQueueManager:
 
         self.queues = defaultdict(list)
         self.pending_swaps = {}
-        self.queue_message_ids = defaultdict(lambda: None)  # topic_id: message_id основного сообщения
-        self.known_users = defaultdict(list)  # chat_id: list of known users
+        self.queue_message_ids = defaultdict(lambda: None)
+        self.known_users = defaultdict(list)
+        self.topic_to_chat = {}  # Новое: маппинг topic_id -> chat_id
         self.load_data()
 
     def load_data(self):
@@ -35,23 +36,48 @@ class PersistentQueueManager:
                     self.known_users = defaultdict(list)
                     for chat_id_str, users in data.get('known_users', {}).items():
                         self.known_users[int(chat_id_str)] = [dict(u, is_bot=u.get('is_bot', False)) for u in users]
+                    # Восстанавливаем topic_to_chat
+                    self.topic_to_chat = {int(k): v for k, v in data.get('topic_to_chat', {}).items()}
+                    
+                    # Автоматически добавляем пользователей из очередей в known_users
+                    self._sync_queue_users_to_known_users()
+                    
                 logger.info(f"Данные загружены из {self.filename}")
         except Exception as e:
             logger.error(f"Ошибка при загрузке данных: {e}")
 
+    def _sync_queue_users_to_known_users(self):
+        """Синхронизация пользователей из очередей в known_users"""
+        for topic_id, queue in self.queues.items():
+            if topic_id in self.topic_to_chat:
+                chat_id = self.topic_to_chat[topic_id]
+                for user in queue:
+                    # Проверяем, нет ли уже такого пользователя
+                    if not any(u['user_id'] == user['user_id'] for u in self.known_users[chat_id]):
+                        self.add_known_user(
+                            chat_id,
+                            user['user_id'],
+                            user['first_name'],
+                            user['last_name'],
+                            user['username'],
+                            False  # is_bot
+                        )
+
     def save_data(self):
         """Сохранение данных в файл"""
         try:
-            # Конвертируем topic_id в строки для JSON
+            # Конвертируем ключи в строки для JSON
             queues_serializable = {str(k): v for k, v in self.queues.items()}
             queue_message_ids_serializable = {str(k): v for k, v in self.queue_message_ids.items()}
             known_users_serializable = {str(k): v for k, v in self.known_users.items()}
+            topic_to_chat_serializable = {str(k): v for k, v in self.topic_to_chat.items()}
 
             data = {
                 'queues': queues_serializable,
                 'pending_swaps': self.pending_swaps,
                 'queue_message_ids': queue_message_ids_serializable,
                 'known_users': known_users_serializable,
+                'topic_to_chat': topic_to_chat_serializable,  # Новое поле
                 'last_save': datetime.now().isoformat()
             }
 
@@ -92,6 +118,12 @@ class PersistentQueueManager:
         }
 
         queue.append(user_data)
+        
+        # Автоматически добавляем пользователя в known_users для этого чата
+        if topic_id in self.topic_to_chat:
+            chat_id = self.topic_to_chat[topic_id]
+            self.add_known_user(chat_id, user_id, first_name, last_name, username, False)
+        
         self.save_data()
         logger.info(f"User {user_id} added to queue {topic_id}")
         return True
@@ -152,6 +184,11 @@ class PersistentQueueManager:
 
     def get_queue_message_id(self, topic_id):
         return self.queue_message_ids.get(topic_id)
+
+    def set_topic_chat_mapping(self, topic_id, chat_id):
+        """Сохранить связь topic_id с chat_id"""
+        self.topic_to_chat[topic_id] = chat_id
+        self.save_data()
 
     def add_pending_swap(self, swap_id, swap_data):
         self.pending_swaps[swap_id] = swap_data
