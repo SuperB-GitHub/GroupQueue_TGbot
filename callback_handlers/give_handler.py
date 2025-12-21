@@ -18,12 +18,12 @@ async def start_give_queue_handler(query, topic_id, user_id, chat_id, context: C
     try:
         if not context.job_queue:
             logger.error("JobQueue недоступен для give_queue")
-            await query.answer("Ошибка: система временных задач недоступна", show_alert=True)
+            await query.answer("Ошибка: система временных задач недоступна")
             return
 
         queue = queue_manager.queues[topic_id]
         if not any(u['user_id'] == user_id for u in queue):
-            await query.answer("Вы не в очереди!", show_alert=True)
+            await query.answer("Вы не в очереди!")
             return
 
         give_id = str(uuid.uuid4())
@@ -59,7 +59,7 @@ async def start_give_queue_handler(query, topic_id, user_id, chat_id, context: C
 
     except Exception as e:
         logger.error(f"Error in start_give_queue: {e}")
-        await query.answer("Ошибка при начале раздачи", show_alert=True)
+        await query.answer("Ошибка при начале раздачи")
 
 
 async def give_confirm_handler(query, give_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -67,7 +67,7 @@ async def give_confirm_handler(query, give_id, chat_id, context: ContextTypes.DE
     try:
         session = active_give_sessions.get(give_id)
         if not session or session['giver_id'] != query.from_user.id:
-            await query.answer("Это не ваша сессия!", show_alert=True)
+            await query.answer("Это не ваша сессия!")
             return
 
         _cancel_give_timeout(context, give_id)
@@ -100,7 +100,7 @@ async def give_confirm_handler(query, give_id, chat_id, context: ContextTypes.DE
 
     except Exception as e:
         logger.error(f"Error in give_confirm: {e}")
-        await query.answer("Ошибка", show_alert=True)
+        await query.answer("Ошибка")
 
 
 async def give_cancel_handler(query, give_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -123,7 +123,7 @@ async def give_back_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
     try:
         session = active_give_sessions.get(give_id)
         if not session or session['giver_id'] != query.from_user.id:
-            await query.answer("Только инициатор может вернуться!", show_alert=True)
+            await query.answer("Только инициатор может вернуться!")
             return
 
         _cancel_give_timeout(context, give_id)
@@ -139,7 +139,7 @@ async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
     try:
         session = active_give_sessions.get(give_id)
         if not session or session['stage'] != 'selection':
-            await query.answer("Сессия недействительна", show_alert=True)
+            await query.answer("Сессия недействительна")
             return
 
         taker_id = query.from_user.id
@@ -203,7 +203,7 @@ async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
 
     except Exception as e:
         logger.error(f"Error in give_take: {e}")
-        await query.answer("Ошибка при взятии места", show_alert=True)
+        await query.answer("Ошибка при взятии места")
 
 
 # Вспомогательные функции

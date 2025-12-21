@@ -15,13 +15,13 @@ async def start_swap_handler(query, topic_id, user_id, chat_id, context: Context
     try:
         queue = queue_manager.queues[topic_id]
         if len(queue) < 2:
-            await query.answer("В очереди должно быть минимум 2 человека для обмена!", show_alert=True)
+            await query.answer("В очереди должно быть минимум 2 человека для обмена!")
             return
 
         # Проверяем доступность JobQueue
         if not context.job_queue:
             logger.error("JobQueue is not available! Cannot set timeout for swap selection")
-            await query.answer("Ошибка: система временных задач недоступна", show_alert=True)
+            await query.answer("Ошибка: система временных задач недоступна")
             return
 
         # Создаем новое самостоятельное сообщение со списком пользователей
@@ -54,7 +54,7 @@ async def start_swap_handler(query, topic_id, user_id, chat_id, context: Context
 
     except Exception as e:
         logger.error(f"Error in start_swap: {e}")
-        await query.answer("Ошибка при начале обмена", show_alert=True)
+        await query.answer("Ошибка при начале обмена")
 
 
 async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -63,11 +63,11 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
         # Проверяем доступность JobQueue
         if not context.job_queue:
             logger.error("JobQueue is not available! Cannot set timeout for swap proposal")
-            await query.answer("Ошибка: система временных задач недоступна", show_alert=True)
+            await query.answer("Ошибка: система временных задач недоступна")
             return
 
         if query.from_user.id != user1_id:
-            await query.answer("Это меню только для инициатора обмена!", show_alert=True)
+            await query.answer("Это меню только для инициатора обмена!")
             return
 
         # Удаляем сообщение с выбором пользователя
@@ -82,7 +82,7 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
         user2 = next((u for u in queue if u['user_id'] == user2_id), None)
 
         if not user1 or not user2:
-            await query.answer("Пользователь не найден в очереди", show_alert=True)
+            await query.answer("Пользователь не найден в очереди")
             return
 
         # Создаем уникальный ID для обмена
@@ -130,7 +130,7 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
 
     except Exception as e:
         logger.error(f"Error in create_swap_proposal: {e}")
-        await query.answer("Ошибка при создании предложения обмена", show_alert=True)
+        await query.answer("Ошибка при создании предложения обмена")
 
 
 async def swap_back_handler(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -179,7 +179,7 @@ async def swap_back_handler(query, swap_id, chat_id, context: ContextTypes.DEFAU
 
     except Exception as e:
         logger.error(f"Error in swap_back_handler: {e}")
-        await query.answer("Ошибка при возврате к выбору", show_alert=True)
+        await query.answer("Ошибка при возврате к выбору")
 
 
 async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -194,19 +194,19 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
 
         swap_data = queue_manager.get_pending_swap(swap_id)
         if not swap_data:
-            await query.answer("Предложение обмена устарело", show_alert=True)
+            await query.answer("Предложение обмена устарело")
             return
 
         # Проверяем, что подтверждает правильный пользователь
         if query.from_user.id != swap_data['user2_id']:
-            await query.answer("Это предложение обмена не для вас!", show_alert=True)
+            await query.answer("Это предложение обмена не для вас!")
             return
 
         # Проверяем, что оба пользователя все еще в очереди
         queue = queue_manager.queues[swap_data['topic_id']]
         if not any(u['user_id'] == swap_data['user1_id'] for u in queue) or not any(
                 u['user_id'] == swap_data['user2_id'] for u in queue):
-            await query.answer("Один из пользователей вышел из очереди. Обмен отменён.", show_alert=True)
+            await query.answer("Один из пользователей вышел из очереди. Обмен отменён.")
             try:
                 await context.bot.delete_message(
                     chat_id=chat_id,
@@ -257,14 +257,14 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
                     get_main_keyboard()
                 )
         else:
-            await query.answer("Ошибка при обмене", show_alert=True)
+            await query.answer("Ошибка при обмене")
 
         # Удаляем данные об обмене
         queue_manager.remove_pending_swap(swap_id)
 
     except Exception as e:
         logger.error(f"Error in confirm_swap: {e}")
-        await query.answer("Ошибка при подтверждении обмена", show_alert=True)
+        await query.answer("Ошибка при подтверждении обмена")
 
 
 async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -279,12 +279,12 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
 
         swap_data = queue_manager.get_pending_swap(swap_id)
         if not swap_data:
-            await query.answer("Предложение обмена устарело", show_alert=True)
+            await query.answer("Предложение обмена устарело")
             return
 
         # Проверяем, что отменяет правильный пользователь
         if query.from_user.id != swap_data['user2_id']:
-            await query.answer("Это предложение обмена не для вас!", show_alert=True)
+            await query.answer("Это предложение обмена не для вас!")
             return
 
         # Обновляем сообщение с отменой
@@ -312,4 +312,4 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
 
     except Exception as e:
         logger.error(f"Error in cancel_swap: {e}")
-        await query.answer("Ошибка при отмене обмена", show_alert=True)
+        await query.answer("Ошибка при отмене обмена")

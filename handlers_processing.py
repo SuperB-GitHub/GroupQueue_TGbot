@@ -16,12 +16,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not query or not query.data or not query.message:
         return
 
-    try:
-        await query.answer()
-    except (TimedOut, NetworkError) as e:
-        logger.warning(f"Timeout answering callback: {e}")
-    except Exception as e:
-        logger.error(f"Error answering callback: {e}")
+    # try:
+    #     await query.answer()
+    # except (TimedOut, NetworkError) as e:
+    #     logger.warning(f"Timeout answering callback: {e}")
+    # except Exception as e:
+    #     logger.error(f"Error answering callback: {e}")
 
     user_id = query.from_user.id
     topic_id = query.message.message_thread_id
@@ -31,7 +31,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Валидация топика
     if not topic_id:
-        await query.answer("Эта команда работает только в темах/топиках", show_alert=True)
+        await query.answer("Эта команда работает только в темах/топиках")
         return
 
     try:
@@ -94,7 +94,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in callback handler: {e}")
         try:
-            await query.answer("❌ Произошла ошибка. Попробуйте еще раз.", show_alert=True)
+            await query.answer("❌ Произошла ошибка. Попробуйте еще раз.")
         except:
             pass
 

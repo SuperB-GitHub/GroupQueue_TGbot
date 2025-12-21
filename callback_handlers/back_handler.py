@@ -32,4 +32,4 @@ async def back_to_main_handler(query, topic_id, context: ContextTypes.DEFAULT_TY
             )
     except Exception as e:
         logger.error(f"Error in back_to_main: {e}")
-        await query.answer("Ошибка при возврате в меню", show_alert=True)
+        await query.answer("Ошибка при возврате в меню")

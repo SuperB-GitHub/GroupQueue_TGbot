@@ -23,8 +23,9 @@ async def add_to_queue_handler(query, topic_id, user_id, context: ContextTypes.D
                     context, query.message.chat_id, main_message_id,
                     queue_manager.get_queue_text(topic_id), get_main_keyboard()
                 )
+            await query.answer("✅ Вы успешно добавлены в очередь!")
         else:
-            await query.answer("Вы уже в очереди!", show_alert=True)
+            await query.answer("❌ Вы уже в очереди!")
     except Exception as e:
         logger.error(f"Error in add_to_queue: {e}")
-        await query.answer("Ошибка при добавлении в очередь", show_alert=True)
+        await query.answer("Ошибка при добавлении в очередь")

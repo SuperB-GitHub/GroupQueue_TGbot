@@ -17,7 +17,7 @@ async def start_add_user_handler(query, topic_id, user_id, chat_id, context: Con
     try:
         if not context.job_queue:
             logger.error("JobQueue is not available! Cannot set timeout for add_user")
-            await query.answer("Ошибка: система временных задач недоступна", show_alert=True)
+            await query.answer("Ошибка: система временных задач недоступна", show_alert=False)
             return
 
         # Создаем уникальный ID для сессии добавления
@@ -61,7 +61,7 @@ async def start_add_user_handler(query, topic_id, user_id, chat_id, context: Con
 
     except Exception as e:
         logger.error(f"Error in start_add_user: {e}")
-        await query.answer("Ошибка при начале добавления", show_alert=True)
+        await query.answer("Ошибка при начале добавления", show_alert=False)
 
 
 async def add_back_handler(query, add_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -69,7 +69,7 @@ async def add_back_handler(query, add_id, chat_id, context: ContextTypes.DEFAULT
     try:
         session = active_add_sessions.get(add_id)
         if not session or session['initiator_id'] != query.from_user.id:
-            await query.answer("Это не ваша сессия добавления!", show_alert=True)
+            await query.answer("Это не ваша сессия добавления!", show_alert=False)
             return
 
         # Отменяем таймер
@@ -91,7 +91,7 @@ async def add_back_handler(query, add_id, chat_id, context: ContextTypes.DEFAULT
 
     except Exception as e:
         logger.error(f"Error in add_back_handler: {e}")
-        await query.answer("Ошибка при возврате", show_alert=True)
+        await query.answer("Ошибка при возврате", show_alert=False)
 
 
 async def handle_add_user_input(update: Update, context: ContextTypes.DEFAULT_TYPE):

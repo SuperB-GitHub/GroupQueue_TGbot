@@ -38,7 +38,7 @@ async def remove_from_queue_handler(query, topic_id, user_id, context: ContextTy
                     queue_manager.get_queue_text(topic_id), get_main_keyboard()
                 )
         else:
-            await query.answer("Вы не в очереди!", show_alert=True)
+            await query.answer("Вы не в очереди!")
     except Exception as e:
         logger.error(f"Error in remove_from_queue: {e}")
-        await query.answer("Ошибка при выходе из очереди", show_alert=True)
+        await query.answer("Ошибка при выходе из очереди")
