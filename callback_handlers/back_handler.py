@@ -2,6 +2,7 @@ from telegram.ext import ContextTypes
 from queue_manager import queue_manager
 from keyboards import get_main_keyboard
 from utils import safe_edit_message
+from lock_manager import lock_manager
 import logging
 
 
@@ -11,8 +12,10 @@ logger = logging.getLogger(__name__)
 async def back_to_main_handler(query, topic_id, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик возврата в главное меню"""
     try:
+        user_id = query.from_user.id
+        
         # Отменяем таймер удаления сообщения выбора, если он активен
-        selection_id = f"selection_{query.message.chat_id}_{topic_id}_{query.from_user.id}_{query.message.message_id}"
+        selection_id = f"selection_{query.message.chat_id}_{topic_id}_{user_id}_{query.message.message_id}"
         current_jobs = context.job_queue.get_jobs_by_name(f"selection_timeout_{selection_id}")
         for job in current_jobs:
             job.schedule_removal()
@@ -23,6 +26,10 @@ async def back_to_main_handler(query, topic_id, context: ContextTypes.DEFAULT_TY
             chat_id=query.message.chat_id,
             message_id=query.message.message_id
         )
+        
+        # Разблокируем топик
+        lock_manager.unlock_by_user(topic_id, user_id)
+        
         # Обновляем основное сообщение
         main_message_id = queue_manager.get_queue_message_id(topic_id)
         if main_message_id:

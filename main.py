@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from telegram.ext import Application, MessageHandler, filters
 from queue_manager import queue_manager
+from lock_manager import lock_manager
 from command_handlers import register_command_handlers
 from handlers_processing import register_callback_handlers
 
@@ -94,6 +95,7 @@ def main():
 
     # Запуск бота
     logger.info("Бот запущен...")
+    logger.info(f"Система блокировок активна. Таймаут: {lock_manager.timeout} секунд")
     application.run_polling()
 
 

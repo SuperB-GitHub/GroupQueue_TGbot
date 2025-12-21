@@ -3,6 +3,7 @@ from telegram.ext import ContextTypes
 from queue_manager import queue_manager
 from keyboards import get_main_keyboard, get_add_user_keyboard
 from utils import safe_edit_message, callback_delete_add_user
+from lock_manager import lock_manager
 import logging
 
 
@@ -17,7 +18,8 @@ async def start_add_user_handler(query, topic_id, user_id, chat_id, context: Con
     try:
         if not context.job_queue:
             logger.error("JobQueue is not available! Cannot set timeout for add_user")
-            await query.answer("Ошибка: система временных задач недоступна", show_alert=False)
+            lock_manager.unlock(topic_id)  # Разблокируем
+            await query.answer("Ошибка: система временных задач недоступна")
             return
 
         # Создаем уникальный ID для сессии добавления
@@ -60,8 +62,9 @@ async def start_add_user_handler(query, topic_id, user_id, chat_id, context: Con
         logger.info(f"Add user session started: {add_id}")
 
     except Exception as e:
+        lock_manager.unlock(topic_id)  # Разблокируем при ошибке
         logger.error(f"Error in start_add_user: {e}")
-        await query.answer("Ошибка при начале добавления", show_alert=False)
+        await query.answer("Ошибка при начале добавления")
 
 
 async def add_back_handler(query, add_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -69,9 +72,11 @@ async def add_back_handler(query, add_id, chat_id, context: ContextTypes.DEFAULT
     try:
         session = active_add_sessions.get(add_id)
         if not session or session['initiator_id'] != query.from_user.id:
-            await query.answer("Это не ваша сессия добавления!", show_alert=False)
+            await query.answer("Это не ваша сессия добавления!")
             return
 
+        topic_id = session['topic_id']
+        
         # Отменяем таймер
         job_name = f"add_user_timeout_{add_id}"
         current_jobs = context.job_queue.get_jobs_by_name(job_name)
@@ -86,12 +91,15 @@ async def add_back_handler(query, add_id, chat_id, context: ContextTypes.DEFAULT
 
         # Удаляем сессию
         active_add_sessions.pop(add_id, None)
+        
+        # Разблокируем топик
+        lock_manager.unlock(topic_id)
 
         logger.info(f"Add user session cancelled: {add_id}")
 
     except Exception as e:
         logger.error(f"Error in add_back_handler: {e}")
-        await query.answer("Ошибка при возврате", show_alert=False)
+        await query.answer("Ошибка при возврате")
 
 
 async def handle_add_user_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -232,5 +240,8 @@ async def handle_add_user_input(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Удаляем сессию
     active_add_sessions.pop(session_add_id, None)
+    
+    # Разблокируем топик
+    lock_manager.unlock(topic_id)
 
     logger.info(f"Add user completed for @{input_text} in topic {topic_id}")

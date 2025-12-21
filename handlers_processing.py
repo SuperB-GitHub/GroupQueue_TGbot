@@ -12,6 +12,7 @@ from callback_handlers.swap_handler import *
 from callback_handlers.give_handler import * 
 from callback_handlers.info_handler import * 
 from queue_manager import queue_manager
+from lock_manager import lock_manager
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Эта команда работает только в темах/топиках")
         return
 
+    # ОПЕРАЦИИ С БЛОКИРОВКОЙ
+    if query.data in ["start_swap", "start_give_queue", "start_add_user"]:
+        # Проверяем блокировку
+        lock_info = lock_manager.get_lock_info(topic_id)
+        if lock_info:
+            if lock_info['user_id'] != user_id:
+                # Другой пользователь пытается начать операцию
+                await query.answer(
+                    f"⚠️ Топик занят: {lock_info['operation']}. Дождитесь завершения."
+                )
+                return
+            # Тот же пользователь - разблокируем старую и начинаем новую
+            lock_manager.unlock(topic_id)
+    
+    # Простые операции без блокировки
+    if query.data in ["add_to_queue", "remove_from_queue", "show_info"]:
+        # Эти операции не требуют блокировки
+        pass
+
     # Собираем пользователя из callback в known_users
     user = query.from_user
     queue_manager.add_known_user(
@@ -60,9 +80,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await remove_from_queue_handler(query, topic_id, user_id, context)
 
         elif query.data == "start_swap":
-            await start_swap_handler(query, topic_id, user_id, chat_id, context)
+            # Блокируем топик для обмена
+            if lock_manager.lock(topic_id, user_id, "обмен местами"):
+                await start_swap_handler(query, topic_id, user_id, chat_id, context)
+            else:
+                await query.answer("⚠️ Не удалось начать операцию", show_alert=True)
 
         elif query.data.startswith("swap_with_"):
+            # Проверяем, что пользователь - инициатор обмена
             parts = query.data.split("_")
             target_user_id = int(parts[2])
             initiator_id = int(parts[3])
@@ -81,17 +106,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await swap_back_handler(query, swap_id, chat_id, context)
 
         elif query.data == "back_to_main":
+            # Разблокируем топик при возврате в главное меню
+            lock_manager.unlock_by_user(topic_id, user_id)
             await back_to_main_handler(query, topic_id, context)
 
         elif query.data == "start_add_user":
-            await start_add_user_handler(query, topic_id, user_id, chat_id, context)
+            # Блокируем топик для добавления
+            if lock_manager.lock(topic_id, user_id, "добавление пользователя"):
+                await start_add_user_handler(query, topic_id, user_id, chat_id, context)
+            else:
+                await query.answer("⚠️ Не удалось начать операцию", show_alert=True)
 
         elif query.data.startswith("add_back_"):
             add_id = query.data.split("_", 2)[2]
             await add_back_handler(query, add_id, chat_id, context)
 
         elif query.data == "start_give_queue":
-            await start_give_queue_handler(query, topic_id, user_id, chat_id, context)
+            # Блокируем топик для отдачи
+            if lock_manager.lock(topic_id, user_id, "отдача места"):
+                await start_give_queue_handler(query, topic_id, user_id, chat_id, context)
+            else:
+                await query.answer("⚠️ Не удалось начать операцию", show_alert=True)
 
         elif query.data.startswith("give_confirm_"):
             give_id = query.data.split("_", 2)[2]
@@ -114,6 +149,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Error in callback handler: {e}")
+        # При ошибке разблокируем топик
+        lock_manager.unlock_by_user(topic_id, user_id)
         try:
             await query.answer("❌ Произошла ошибка. Попробуйте еще раз.")
         except:

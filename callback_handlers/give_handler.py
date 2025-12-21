@@ -1,8 +1,10 @@
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 from queue_manager import queue_manager
 from keyboards import get_main_keyboard, get_give_confirmation_keyboard, get_give_selection_keyboard
 from utils import safe_edit_message, callback_delete_success
+from lock_manager import lock_manager
 import logging
 import uuid
 
@@ -17,11 +19,13 @@ async def start_give_queue_handler(query, topic_id, user_id, chat_id, context: C
     try:
         if not context.job_queue:
             logger.error("JobQueue недоступен для give_queue")
+            lock_manager.unlock(topic_id)  # Разблокируем
             await query.answer("Ошибка: система временных задач недоступна")
             return
 
         queue = queue_manager.queues[topic_id]
         if not any(u['user_id'] == user_id for u in queue):
+            lock_manager.unlock(topic_id)  # Разблокируем
             await query.answer("Вы не в очереди!")
             return
 
@@ -57,6 +61,7 @@ async def start_give_queue_handler(query, topic_id, user_id, chat_id, context: C
         logger.info(f"Give session started: {give_id}")
 
     except Exception as e:
+        lock_manager.unlock(topic_id)  # Разблокируем при ошибке
         logger.error(f"Error in start_give_queue: {e}")
         await query.answer("Ошибка при начале раздачи")
 
@@ -76,6 +81,7 @@ async def give_confirm_handler(query, give_id, chat_id, context: ContextTypes.DE
         if not giver:
             await query.edit_message_text("Вы больше не в очереди.")
             _cleanup_give_session(give_id)
+            lock_manager.unlock(session['topic_id'])  # Разблокируем
             return
 
         reply_markup = get_give_selection_keyboard(give_id)
@@ -112,6 +118,9 @@ async def give_cancel_handler(query, give_id, chat_id, context: ContextTypes.DEF
         _cancel_give_timeout(context, give_id)
         await context.bot.delete_message(chat_id=chat_id, message_id=query.message.message_id)
         _cleanup_give_session(give_id)
+        
+        # Разблокируем топик
+        lock_manager.unlock(session['topic_id'])
 
     except Exception as e:
         logger.error(f"Error in give_cancel: {e}")
@@ -128,13 +137,16 @@ async def give_back_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
         _cancel_give_timeout(context, give_id)
         await context.bot.delete_message(chat_id=chat_id, message_id=query.message.message_id)
         _cleanup_give_session(give_id)
+        
+        # Разблокируем топик
+        lock_manager.unlock(session['topic_id'])
 
     except Exception as e:
         logger.error(f"Error in give_back: {e}")
 
 
 async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
-    """Взятие места — любой пользователь"""
+    """Взятие места — любой пользователь КРОМЕ инициатора"""
     try:
         session = active_give_sessions.get(give_id)
         if not session or session['stage'] != 'selection':
@@ -159,8 +171,9 @@ async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
         queue = queue_manager.queues[topic_id]
         giver_pos = next((i for i, u in enumerate(queue) if u['user_id'] == session['giver_id']), None)
         if giver_pos is None:
-            await query.answer("Место уже недоступно.")
+            await query.edit_message_text("Место уже недоступно.")
             _cleanup_give_session(give_id)
+            lock_manager.unlock(topic_id)  # Разблокируем
             return
 
         # Удаляем giver
@@ -173,6 +186,7 @@ async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
             'last_name': query.from_user.last_name or '',
             'username': query.from_user.username or '',
             'display_name': f"{query.from_user.first_name or ''} {query.from_user.last_name or ''}".strip() or f"User_{taker_id}",
+            'joined_at': datetime.now().isoformat()
         }
         queue.insert(giver_pos, taker_data)
 
@@ -203,10 +217,16 @@ async def give_take_handler(query, give_id, chat_id, context: ContextTypes.DEFAU
             )
 
         _cleanup_give_session(give_id)
+        
+        # Разблокируем топик
+        lock_manager.unlock(topic_id)
 
     except Exception as e:
         logger.error(f"Error in give_take: {e}")
         await query.answer("Ошибка при взятии места")
+        # При ошибке разблокируем
+        if 'topic_id' in locals():
+            lock_manager.unlock(topic_id)
 
 
 # Вспомогательные функции
@@ -229,8 +249,11 @@ async def callback_delete_give_session(context: ContextTypes.DEFAULT_TYPE):
     message_id = data['message_id']
 
     if give_id in active_give_sessions:
+        topic_id = active_give_sessions[give_id]['topic_id']
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
         except Exception as e:
             logger.error(f"Failed to delete give message: {e}")
         _cleanup_give_session(give_id)
+        # Разблокируем топик при таймауте
+        lock_manager.unlock(topic_id)

@@ -4,6 +4,7 @@ from keyboards import get_main_keyboard, get_swap_confirmation_keyboard, get_swa
 from utils import (safe_edit_message, callback_delete_selection, callback_delete_proposal, callback_delete_success,
                    callback_delete_cancel)
 import logging
+from lock_manager import lock_manager
 
 
 logger = logging.getLogger(__name__)
@@ -15,11 +16,13 @@ async def start_swap_handler(query, topic_id, user_id, chat_id, context: Context
     try:
         queue = queue_manager.queues[topic_id]
         if len(queue) < 2:
+            lock_manager.unlock(topic_id)  # Разблокируем т.к. операция не началась
             await query.answer("В очереди должно быть минимум 2 человека для обмена!")
             return
 
         # Проверяем доступность JobQueue
         if not context.job_queue:
+            lock_manager.unlock(topic_id)
             logger.error("JobQueue is not available! Cannot set timeout for swap selection")
             await query.answer("Ошибка: система временных задач недоступна")
             return
@@ -53,6 +56,7 @@ async def start_swap_handler(query, topic_id, user_id, chat_id, context: Context
         logger.info(f"Swap selection message created, timeout scheduled for 60 seconds")
 
     except Exception as e:
+        lock_manager.unlock(topic_id)  # Разблокируем при ошибке
         logger.error(f"Error in start_swap: {e}")
         await query.answer("Ошибка при начале обмена")
 
@@ -136,6 +140,9 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
 async def swap_back_handler(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки Назад в предложении обмена"""
     try:
+        topic_id = query.message.message_thread_id
+        user_id = query.from_user.id
+        
         # Отменяем таймер удаления предложения
         job_name = f"swap_timeout_{swap_id}"
         current_jobs = context.job_queue.get_jobs_by_name(job_name)
@@ -146,9 +153,10 @@ async def swap_back_handler(query, swap_id, chat_id, context: ContextTypes.DEFAU
         # Удаляем данные об обмене
         queue_manager.remove_pending_swap(swap_id)
 
+        # Разблокируем топик
+        lock_manager.unlock_by_user(topic_id, user_id)
+
         # Возвращаем к списку пользователей для выбора
-        topic_id = query.message.message_thread_id
-        user_id = query.from_user.id
         queue = queue_manager.queues[topic_id]
 
         initiator_username = query.from_user.username
@@ -197,13 +205,15 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
             await query.answer("Предложение обмена устарело")
             return
 
+        topic_id = swap_data['topic_id']
+        
         # Проверяем, что подтверждает правильный пользователь
         if query.from_user.id != swap_data['user2_id']:
             await query.answer("Это предложение обмена не для вас!")
             return
 
         # Проверяем, что оба пользователя все еще в очереди
-        queue = queue_manager.queues[swap_data['topic_id']]
+        queue = queue_manager.queues[topic_id]
         if not any(u['user_id'] == swap_data['user1_id'] for u in queue) or not any(
                 u['user_id'] == swap_data['user2_id'] for u in queue):
             await query.answer("Один из пользователей вышел из очереди. Обмен отменён.")
@@ -215,11 +225,12 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
             except Exception as e:
                 logger.error(f"Error deleting proposal message: {e}")
             queue_manager.remove_pending_swap(swap_id)
+            lock_manager.unlock(topic_id)  # Разблокируем
             return
 
         # Выполняем обмен
         success = queue_manager.swap_users(
-            swap_data['topic_id'], swap_data['user1_id'], swap_data['user2_id']
+            topic_id, swap_data['user1_id'], swap_data['user2_id']
         )
 
         if success:
@@ -249,11 +260,11 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
             )
 
             # Обновляем основное сообщение с очередью
-            main_message_id = queue_manager.get_queue_message_id(swap_data['topic_id'])
+            main_message_id = queue_manager.get_queue_message_id(topic_id)
             if main_message_id:
                 await safe_edit_message(
                     context, chat_id, main_message_id,
-                    queue_manager.get_queue_text(swap_data['topic_id']),
+                    queue_manager.get_queue_text(topic_id),
                     get_main_keyboard()
                 )
         else:
@@ -261,10 +272,16 @@ async def confirm_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TY
 
         # Удаляем данные об обмене
         queue_manager.remove_pending_swap(swap_id)
+        
+        # Разблокируем топик
+        lock_manager.unlock(topic_id)
 
     except Exception as e:
         logger.error(f"Error in confirm_swap: {e}")
         await query.answer("Ошибка при подтверждении обмена")
+        # При ошибке разблокируем
+        if 'topic_id' in locals():
+            lock_manager.unlock(topic_id)
 
 
 async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYPE):
@@ -282,6 +299,8 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
             await query.answer("Предложение обмена устарело")
             return
 
+        topic_id = swap_data['topic_id']
+        
         # Проверяем, что отменяет правильный пользователь
         if query.from_user.id != swap_data['user2_id']:
             await query.answer("Это предложение обмена не для вас!")
@@ -296,7 +315,7 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             logger.error(f"Error updating cancellation message: {e}")
 
-        # Запускаем таймер на удаление через 10 секунд (10 секунд)
+        # Запускаем таймер на удаление через 10 секунд
         context.job_queue.run_once(
             callback_delete_cancel,
             10,
@@ -309,7 +328,13 @@ async def cancel_swap(query, swap_id, chat_id, context: ContextTypes.DEFAULT_TYP
 
         # Удаляем данные об обмене
         queue_manager.remove_pending_swap(swap_id)
+        
+        # Разблокируем топик
+        lock_manager.unlock(topic_id)
 
     except Exception as e:
         logger.error(f"Error in cancel_swap: {e}")
         await query.answer("Ошибка при отмене обмена")
+        # При ошибке разблокируем
+        if 'topic_id' in locals():
+            lock_manager.unlock(topic_id)
