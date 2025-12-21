@@ -6,6 +6,7 @@ from callback_handlers.back_handler import *
 from callback_handlers.remove_handler import *
 from callback_handlers.swap_handler import *
 from callback_handlers.give_handler import * 
+from callback_handlers.info_handler import * 
 logger = logging.getLogger(__name__)
 
 
@@ -90,6 +91,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif query.data.startswith("give_take_"):
             give_id = query.data.split("_", 2)[2]
             await give_take_handler(query, give_id, chat_id, context)
+        
+        elif query.data == "show_info":
+            await show_info_handler(query)
 
     except Exception as e:
         logger.error(f"Error in callback handler: {e}")
