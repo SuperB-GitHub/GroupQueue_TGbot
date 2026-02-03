@@ -50,7 +50,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if lock_info['user_id'] != user_id:
                 # Другой пользователь пытается начать операцию
                 await query.answer(
-                    f"⚠️ Топик занят: {lock_info['operation']}. Дождитесь завершения."
+                    f"⚠️ Топик занят: {lock_info['operation']}. Дождитесь завершения.",
+                    show_alert=True
                 )
                 return
             # Тот же пользователь - разблокируем старую и начинаем новую
