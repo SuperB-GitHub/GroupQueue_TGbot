@@ -162,3 +162,49 @@ async def callback_delete_add_user(context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Edited expired add_user message {message_id}")
         except Exception as edit_error:
             logger.error(f"Failed to edit expired add_user message {message_id}: {edit_error}")
+
+async def callback_delete_temp_message(context: ContextTypes.DEFAULT_TYPE):
+    """Удаление временного сообщения по таймеру"""
+    job = context.job
+    if not job:
+        logger.error("No job context in callback_delete_temp_message")
+        return
+
+    job_data = job.data
+    chat_id = job_data['chat_id']
+    message_id = job_data['message_id']
+
+    logger.debug(f"Deleting temp message {message_id}")
+    
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        logger.debug(f"Successfully deleted temp message {message_id}")
+    except Exception as e:
+        logger.error(f"Failed to delete temp message {message_id}: {e}")
+
+async def send_temp_message(context, chat_id, topic_id, text, duration=5):
+    """Отправить временное сообщение в топик с автоматическим удалением"""
+    try:
+        temp_msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            message_thread_id=topic_id,
+            disable_notification=True  # Без звука/уведомления
+        )
+        
+        # Запланировать удаление
+        if context.job_queue:
+            context.job_queue.run_once(
+                callback_delete_temp_message,
+                when=duration,
+                data={
+                    'chat_id': chat_id,
+                    'message_id': temp_msg.message_id
+                }
+            )
+        
+        logger.debug(f"Sent temp message {temp_msg.message_id} in topic {topic_id}")
+        return temp_msg
+    except Exception as e:
+        logger.error(f"Error sending temp message: {e}")
+        return None
