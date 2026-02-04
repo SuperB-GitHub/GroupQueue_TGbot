@@ -35,7 +35,8 @@ async def start_swap_handler(query, topic_id, user_id, chat_id, context: Context
             chat_id=chat_id,
             text=text,
             reply_markup=get_swap_users_keyboard(queue, user_id, user_id),
-            message_thread_id=topic_id
+            message_thread_id=topic_id,
+            disable_notification=True
         )
 
         # Создаем уникальный ID для сообщения выбора (selection_id)
@@ -111,7 +112,8 @@ async def create_swap_proposal(query, topic_id, user1_id, user2_id, chat_id, con
             chat_id=chat_id,
             text=proposal_text,
             reply_markup=get_swap_confirmation_keyboard(swap_id),
-            message_thread_id=topic_id
+            message_thread_id=topic_id,
+            disable_notification=True
         )
 
         # Сохраняем ID сообщения предложения

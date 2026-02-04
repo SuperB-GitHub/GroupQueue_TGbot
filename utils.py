@@ -163,6 +163,7 @@ async def callback_delete_add_user(context: ContextTypes.DEFAULT_TYPE):
         except Exception as edit_error:
             logger.error(f"Failed to edit expired add_user message {message_id}: {edit_error}")
 
+
 async def callback_delete_temp_message(context: ContextTypes.DEFAULT_TYPE):
     """Удаление временного сообщения по таймеру"""
     job = context.job
@@ -182,7 +183,8 @@ async def callback_delete_temp_message(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Failed to delete temp message {message_id}: {e}")
 
-async def send_temp_message(context, chat_id, topic_id, text, duration=5):
+
+async def send_temp_message(context, chat_id, topic_id, text, duration = 2):
     """Отправить временное сообщение в топик с автоматическим удалением"""
     try:
         temp_msg = await context.bot.send_message(

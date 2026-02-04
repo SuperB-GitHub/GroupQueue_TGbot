@@ -35,7 +35,8 @@ async def start_add_user_handler(query, topic_id, user_id, chat_id, context: Con
             chat_id=chat_id,
             text=text,
             reply_markup=get_add_user_keyboard(add_id),
-            message_thread_id=topic_id
+            message_thread_id=topic_id,
+            disable_notification=True
         )
 
         # Сохраняем сессию

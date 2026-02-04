@@ -330,12 +330,6 @@ async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except:
                     pass
 
-            # Временное сообщение об успехе
-            await send_temp_message(
-                context, chat_id, topic_id,
-                f"✅ @{username} вставлен на позицию {insert_position + 1}."
-            )
-            
             logger.info(f"User @{username} inserted at position {insert_position + 1} by admin {user_id}")
             
             # Удаляем сообщение с командой /insert
