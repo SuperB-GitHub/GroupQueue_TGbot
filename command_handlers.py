@@ -135,7 +135,7 @@ async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /remove @username для админов"""
+    """Команда /remove @username1 @username2 ... для админов (можно несколько через пробел)"""
     try:
         if update.message and update.message.is_topic_message:
             topic_id = update.message.message_thread_id
@@ -166,35 +166,58 @@ async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             if not context.args:
                 await send_temp_message(
                     context, chat_id, topic_id,
-                    "❌ Укажите @username для удаления."
+                    "❌ Укажите @username для удаления.\n\n"
+                    "Можно указать несколько пользователей через пробел:\n"
+                    "<code>/remove @user1 @user2 @user3</code>"
                 )
                 await update.message.delete()
                 return
 
-            username = context.args[0].lstrip('@')
-
-            # Удаляем пользователя по username
-            removed = queue_manager.remove_user_by_username(topic_id, username)
+            removed_users = []
+            not_found_users = []
             
-            if removed:
-                # Обновляем основное сообщение с очередью
-                main_message_id = queue_manager.get_queue_message_id(topic_id)
-                if main_message_id:
-                    await safe_edit_message(
-                        context, chat_id, main_message_id,
-                        queue_manager.get_queue_text(topic_id), get_main_keyboard()
-                    )
-                # Временное сообщение об успехе
-                await send_temp_message(
-                    context, chat_id, topic_id,
-                    f"✅ @{username} удалён из очереди."
-                )
-                logger.info(f"User @{username} removed by admin {user_id}")
+            # Обрабатываем всех переданных пользователей
+            for arg in context.args:
+                username = arg.lstrip('@')
+                
+                # Удаляем пользователя по username
+                removed = queue_manager.remove_user_by_username(topic_id, username)
+                
+                if removed:
+                    removed_users.append(f"@{username}")
+                    logger.info(f"User @{username} removed by admin {user_id}")
+                else:
+                    not_found_users.append(f"@{username}")
+
+            # Формируем отчет об удалении
+            response_parts = []
+            
+            if removed_users:
+                response_parts.append(f"✅ Удалено из очереди:\n{', '.join(removed_users)}")
+            
+            if not_found_users:
+                response_parts.append(f"❌ Не найдено в очереди:\n{', '.join(not_found_users)}")
+            
+            if removed_users or not_found_users:
+                # Обновляем основное сообщение с очередью, если были изменения
+                if removed_users:
+                    main_message_id = queue_manager.get_queue_message_id(topic_id)
+                    if main_message_id:
+                        await safe_edit_message(
+                            context, chat_id, main_message_id,
+                            queue_manager.get_queue_text(topic_id), get_main_keyboard()
+                        )
+                
+                # Отправляем временное сообщение с отчетом
+                response_text = "\n\n".join(response_parts)
+                await send_temp_message(context, chat_id, topic_id, response_text)
             else:
-                # Временное сообщение об ошибке
+                # Если не было ни одного аргумента с @
                 await send_temp_message(
                     context, chat_id, topic_id,
-                    f"❌ @{username} не найден в очереди."
+                    "❌ Не указаны пользователи для удаления.\n\n"
+                    "Используйте формат:\n"
+                    "<code>/remove @user1 @user2</code>"
                 )
 
             # Удаляем сообщение с командой /remove
