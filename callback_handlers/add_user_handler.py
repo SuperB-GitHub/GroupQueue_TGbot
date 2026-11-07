@@ -179,6 +179,23 @@ async def handle_add_user_input(update: Update, context: ContextTypes.DEFAULT_TY
             pass
         return
 
+    # Проверка бана целевого пользователя
+    if queue_manager.is_banned(target_user['user_id']):
+        await safe_edit_message(
+            context,
+            chat_id,
+            session['message_id'],
+            f"❌ Пользователь @{input_text} забанен и не может быть добавлен в очередь.\n\n"
+            "Отправьте другой @username.\n\n"
+            "⏰ Сообщение удалится через 1 минуту",
+            get_add_user_keyboard(session_add_id)
+        )
+        try:
+            await update.message.delete()
+        except:
+            pass
+        return
+
     # Добавляем в очередь
     success = queue_manager.add_user_to_queue(
         topic_id,

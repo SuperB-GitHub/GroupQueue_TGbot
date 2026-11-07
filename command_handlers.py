@@ -434,6 +434,122 @@ async def clear_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         except:
             pass
 
+async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /ban @username — бан пользователя и удаление из всех очередей (только админы)"""
+    try:
+        if not update.message or not update.message.is_topic_message:
+            return
+
+        topic_id = update.message.message_thread_id
+        chat_id = update.message.chat_id
+        user_id = update.message.from_user.id
+
+        # Проверка прав администратора
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        if member.status not in ['administrator', 'creator']:
+            await send_temp_message(
+                context, chat_id, topic_id,
+                "❌ Только администраторы могут использовать /ban."
+            )
+            await update.message.delete()
+            return
+
+        if not context.args:
+            await send_temp_message(
+                context, chat_id, topic_id,
+                "❌ Использование: /ban @username"
+            )
+            await update.message.delete()
+            return
+
+        username_arg = context.args[0]
+        target_id, found_username = queue_manager.find_user_by_username(username_arg)
+
+        if target_id is None:
+            await send_temp_message(
+                context, chat_id, topic_id,
+                f"❌ Пользователь @{username_arg.lstrip('@')} не найден среди известных."
+            )
+            await update.message.delete()
+            return
+
+        queue_manager.ban_user(target_id, found_username or username_arg.lstrip('@'))
+
+        # Обновляем все сообщения очередей, где мог быть этот пользователь
+        for tid, mid in list(queue_manager.queue_message_ids.items()):
+            if mid:
+                cid = queue_manager.topic_to_chat.get(tid)
+                if cid:
+                    await safe_edit_message(
+                        context, cid, mid,
+                        queue_manager.get_queue_text(tid), get_main_keyboard()
+                    )
+
+        await send_temp_message(
+            context, chat_id, topic_id,
+            f"🚫 Пользователь @{found_username or username_arg.lstrip('@')} забанен и удалён из всех очередей."
+        )
+        await update.message.delete()
+
+    except Exception as e:
+        logger.error(f"Error in ban command: {e}")
+        try:
+            await update.message.delete()
+        except:
+            pass
+
+
+async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /unban @username — разбан пользователя (только админы)"""
+    try:
+        if not update.message or not update.message.is_topic_message:
+            return
+
+        topic_id = update.message.message_thread_id
+        chat_id = update.message.chat_id
+        user_id = update.message.from_user.id
+
+        # Проверка прав администратора
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        if member.status not in ['administrator', 'creator']:
+            await send_temp_message(
+                context, chat_id, topic_id,
+                "❌ Только администраторы могут использовать /unban."
+            )
+            await update.message.delete()
+            return
+
+        if not context.args:
+            await send_temp_message(
+                context, chat_id, topic_id,
+                "❌ Использование: /unban @username"
+            )
+            await update.message.delete()
+            return
+
+        username_arg = context.args[0]
+        target_id, found_username = queue_manager.find_user_by_username(username_arg)
+
+        if target_id is None or not queue_manager.unban_user(target_id):
+            await send_temp_message(
+                context, chat_id, topic_id,
+                f"❌ Пользователь @{username_arg.lstrip('@')} не найден в бан-листе."
+            )
+            await update.message.delete()
+            return
+
+        await send_temp_message(
+            context, chat_id, topic_id,
+            f"✅ Пользователь @{found_username or username_arg.lstrip('@')} разбанен."
+        )
+        await update.message.delete()
+
+    except Exception as e:
+        logger.error(f"Error in unban command: {e}")
+        try:
+            await update.message.delete()
+        except:
+            pass
 
 def register_command_handlers(application):
     """Регистрация обработчиков команд"""
@@ -443,3 +559,5 @@ def register_command_handlers(application):
     application.add_handler(CommandHandler("remove", remove_user_command))
     application.add_handler(CommandHandler("insert", insert_user_command))
     application.add_handler(CommandHandler("clear", clear_queue_command))
+    application.add_handler(CommandHandler("ban", ban_command))
+    application.add_handler(CommandHandler("unban", unban_command))

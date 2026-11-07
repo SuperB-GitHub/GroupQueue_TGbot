@@ -67,7 +67,11 @@ def main():
         raise ValueError("Токен бота не найден в переменных окружения")
 
     # Создаем Application с JobQueue
-    application = Application.builder().token(TOKEN).build()
+    application = (
+    Application.builder()
+    .token(TOKEN)
+    .build()
+)
 
     # Регистрация обработчиков из модулей
     register_command_handlers(application)

@@ -18,7 +18,9 @@ class PersistentQueueManager:
         self.queue_message_ids = defaultdict(lambda: None)
         self.known_users = defaultdict(list)
         self.topic_to_chat = {}  # Новое: маппинг topic_id -> chat_id
+        self.banned_users = {}
         self.load_data()
+        
 
     def load_data(self):
         """Загрузка данных из файла"""
@@ -38,7 +40,8 @@ class PersistentQueueManager:
                         self.known_users[int(chat_id_str)] = [dict(u, is_bot=u.get('is_bot', False)) for u in users]
                     # Восстанавливаем topic_to_chat
                     self.topic_to_chat = {int(k): v for k, v in data.get('topic_to_chat', {}).items()}
-                    
+                    self.banned_users = data.get('banned_users', {})
+
                     # Автоматически добавляем пользователей из очередей в known_users
                     self._sync_queue_users_to_known_users()
                     
@@ -77,7 +80,8 @@ class PersistentQueueManager:
                 'pending_swaps': self.pending_swaps,
                 'queue_message_ids': queue_message_ids_serializable,
                 'known_users': known_users_serializable,
-                'topic_to_chat': topic_to_chat_serializable,  # Новое поле
+                'topic_to_chat': topic_to_chat_serializable,
+                'banned_users': self.banned_users,
                 'last_save': datetime.now().isoformat()
             }
 
@@ -100,6 +104,10 @@ class PersistentQueueManager:
         """Добавление пользователя в очередь с валидацией"""
         if not isinstance(topic_id, int) or not isinstance(user_id, int):
             logger.error(f"Invalid IDs: topic_id={topic_id}, user_id={user_id}")
+            return False
+
+        if self.is_banned(user_id):
+            logger.info(f"Banned user {user_id} tried to join queue {topic_id}")
             return False
 
         queue = self.queues[topic_id]
@@ -223,6 +231,49 @@ class PersistentQueueManager:
     def get_known_users(self, chat_id):
         """Получение списка известных пользователей"""
         return self.known_users[chat_id]
+
+    def is_banned(self, user_id: int) -> bool:
+        return str(user_id) in self.banned_users
+
+    def ban_user(self, user_id: int, username: str) -> None:
+        self.banned_users[str(user_id)] = {
+            "username": username,
+            "banned_at": datetime.now().isoformat()
+        }
+        # удаляем из всех очередей
+        for topic_id, queue in self.queues.items():
+            self.queues[topic_id] = [u for u in queue if u["user_id"] != user_id]
+        self.save_data()
+
+    def unban_user(self, user_id: int) -> bool:
+        if str(user_id) in self.banned_users:
+            del self.banned_users[str(user_id)]
+            self.save_data()
+            return True
+        return False
+
+    def find_user_by_username(self, username: str):
+        """Ищем user_id по username среди забаненных, известных пользователей и очередей."""
+        username = username.lstrip("@").lower()
+
+        # 1) среди забаненных
+        for uid, info in self.banned_users.items():
+            if info.get("username", "").lower() == username:
+                return int(uid), info.get("username")
+
+        # 2) среди known_users (это dict chat_id -> list[user])
+        for users_list in self.known_users.values():
+            for u in users_list:
+                if (u.get("username") or "").lower() == username:
+                    return u["user_id"], u.get("username")
+
+        # 3) среди участников очередей
+        for queue in self.queues.values():
+            for u in queue:
+                if (u.get("username") or "").lower() == username:
+                    return u["user_id"], u.get("username")
+
+        return None, None
 
 
 # Создаем глобальный экземпляр менеджера очередей

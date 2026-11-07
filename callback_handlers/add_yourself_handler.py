@@ -11,6 +11,11 @@ logger = logging.getLogger(__name__)
 async def add_to_queue_handler(query, topic_id, user_id, context: ContextTypes.DEFAULT_TYPE):
     """Добавление пользователя в очередь"""
     try:
+
+        if queue_manager.is_banned(user_id):
+            await query.answer("🚫 Вы забанены и не можете вступать в очереди.", show_alert=True)
+            return
+
         user = query.from_user
         success = queue_manager.add_user_to_queue(
             topic_id, user_id, user.first_name, user.last_name, user.username

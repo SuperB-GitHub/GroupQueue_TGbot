@@ -42,6 +42,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Эта команда работает только в темах/топиках")
         return
 
+    if queue_manager.is_banned(user_id):
+        await query.answer(
+            "🚫 Вы забанены и не можете пользоваться очередью.",
+            show_alert=True
+        )
+        return
+
     # ОПЕРАЦИИ С БЛОКИРОВКОЙ
     if query.data in ["start_swap", "start_give_queue", "start_add_user"]:
         # Проверяем блокировку
