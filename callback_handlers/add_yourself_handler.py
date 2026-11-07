@@ -16,6 +16,14 @@ async def add_to_queue_handler(query, topic_id, user_id, context: ContextTypes.D
             await query.answer("🚫 Вы забанены и не можете вступать в очереди.", show_alert=True)
             return
 
+        remaining = queue_manager.get_clear_cooldown_remaining(topic_id)
+        if remaining > 0:
+            await query.answer(
+                f"⏳ Очередь недавно очищена. Подождите {remaining} сек.",
+                show_alert=True
+            )
+            return
+
         user = query.from_user
         success = queue_manager.add_user_to_queue(
             topic_id, user_id, user.first_name, user.last_name, user.username

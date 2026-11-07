@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from collections import defaultdict
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class PersistentQueueManager:
         self.known_users = defaultdict(list)
         self.topic_to_chat = {}  # Новое: маппинг topic_id -> chat_id
         self.banned_users = {}
+        self.clear_cooldowns = {}
         self.load_data()
         
 
@@ -275,6 +277,20 @@ class PersistentQueueManager:
 
         return None, None
 
+    def set_clear_cooldown(self, topic_id: int, seconds: int) -> None:
+        """Заблокировать вступление в очередь на N секунд после /clear"""
+        self.clear_cooldowns[topic_id] = time.time() + seconds
+
+    def get_clear_cooldown_remaining(self, topic_id: int) -> int:
+        """Сколько секунд осталось до разблокировки (0 — не заблокировано)"""
+        deadline = self.clear_cooldowns.get(topic_id)
+        if not deadline:
+            return 0
+        remaining = int(deadline - time.time())
+        if remaining <= 0:
+            self.clear_cooldowns.pop(topic_id, None)
+            return 0
+        return remaining
 
 # Создаем глобальный экземпляр менеджера очередей
 queue_manager = PersistentQueueManager()

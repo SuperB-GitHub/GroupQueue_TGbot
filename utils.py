@@ -210,3 +210,44 @@ async def send_temp_message(context, chat_id, topic_id, text, duration = 2):
     except Exception as e:
         logger.error(f"Error sending temp message: {e}")
         return None
+
+
+async def callback_clear_cooldown_tick(context: ContextTypes.DEFAULT_TYPE):
+    """Ежесекундное обновление сообщения с обратным отсчётом после /clear"""
+    job = context.job
+    data = job.data
+    chat_id = data['chat_id']
+    message_id = data['message_id']
+    topic_id = data['topic_id']
+
+    # Если очередь уже снова очистили — старый отсчёт прекращаем
+    remaining = queue_manager.get_clear_cooldown_remaining(topic_id)
+    if remaining <= 0:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception as e:
+            logger.error(f"Error deleting cooldown message: {e}")
+        return
+
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"🧹 Очередь очищена.\n\n"
+                 f"⏳ Вступление в очередь будет доступно через {remaining} сек."
+        )
+    except Exception as e:
+        logger.error(f"Error editing cooldown message: {e}")
+
+    # Планируем следующий тик, если ещё есть время
+    if remaining > 0 and context.job_queue:
+        context.job_queue.run_once(
+            callback_clear_cooldown_tick,
+            1,
+            data={
+                'chat_id': chat_id,
+                'message_id': message_id,
+                'topic_id': topic_id,
+            },
+            name=f"clear_cooldown_{topic_id}_{message_id}"
+        )

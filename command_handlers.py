@@ -5,7 +5,7 @@ from telegram.error import TimedOut, NetworkError
 
 from queue_manager import queue_manager
 from keyboards import get_main_keyboard
-from utils import safe_edit_message, send_temp_message
+from utils import safe_edit_message, send_temp_message, callback_clear_cooldown_tick
 
 logger = logging.getLogger(__name__)
 
@@ -423,6 +423,29 @@ async def clear_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
 
             logger.info(f"Queue cleared in topic {topic_id} by admin {user_id}")
+
+            cooldown_seconds = 30
+            queue_manager.set_clear_cooldown(topic_id, cooldown_seconds)
+
+            cooldown_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🧹 Очередь очищена.\n\n"
+                     f"⏳ Вступление в очередь будет доступно через {cooldown_seconds} сек.",
+                message_thread_id=topic_id,
+                disable_notification=True
+            )
+
+            if context.job_queue:
+                context.job_queue.run_once(
+                    callback_clear_cooldown_tick,
+                    1,
+                    data={
+                        'chat_id': chat_id,
+                        'message_id': cooldown_msg.message_id,
+                        'topic_id': topic_id,
+                    },
+                    name=f"clear_cooldown_{topic_id}_{cooldown_msg.message_id}"
+                )
             
             # Удаляем сообщение с командой /clear
             await update.message.delete()
@@ -433,6 +456,7 @@ async def clear_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.delete()
         except:
             pass
+
 
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /ban @username — бан пользователя и удаление из всех очередей (только админы)"""

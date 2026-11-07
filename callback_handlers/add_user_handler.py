@@ -196,6 +196,22 @@ async def handle_add_user_input(update: Update, context: ContextTypes.DEFAULT_TY
             pass
         return
 
+    remaining = queue_manager.get_clear_cooldown_remaining(topic_id)
+    if remaining > 0:
+        await safe_edit_message(
+            context,
+            chat_id,
+            session['message_id'],
+            f"⏳ Очередь недавно очищена. Подождите {remaining} сек.\n\n"
+            "⏰ Сообщение удалится через 1 минуту",
+            get_add_user_keyboard(session_add_id)
+        )
+        try:
+            await update.message.delete()
+        except:
+            pass
+        return
+
     # Добавляем в очередь
     success = queue_manager.add_user_to_queue(
         topic_id,
