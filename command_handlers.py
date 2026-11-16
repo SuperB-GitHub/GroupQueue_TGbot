@@ -575,6 +575,151 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
+
+async def replace_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /replace [-q|q] @username1 @username2 - принудительный обмен местами (только админы)
+
+    Флаг -q / q первым аргументом — тихий режим: без временного сообщения-подтверждения.
+    """
+    try:
+        if not update.message or not update.message.is_topic_message:
+            return
+
+        topic_id = update.message.message_thread_id
+        chat_id = update.message.chat_id
+        user_id = update.message.from_user.id
+
+        # Собираем пользователя, который вызвал команду
+        user = update.message.from_user
+        queue_manager.add_known_user(
+            chat_id,
+            user.id,
+            user.first_name,
+            user.last_name,
+            user.username,
+            user.is_bot
+        )
+
+        # Проверяем, является ли пользователь админом
+        try:
+            member = await context.bot.get_chat_member(chat_id, user_id)
+            if member.status not in ['administrator', 'creator']:
+                await send_temp_message(
+                    context, chat_id, topic_id,
+                    "❌ Только администраторы могут использовать /replace."
+                )
+                await update.message.delete()
+                return
+        except Exception as admin_error:
+            logger.error(f"Error checking admin status: {admin_error}")
+            await update.message.delete()
+            return
+
+        # --- Разбор аргументов с поддержкой тихого режима ---
+        args = list(context.args) if context.args else []
+
+        quiet = False
+        if args and args[0].lower() in ('-q', 'q'):
+            quiet = True
+            args = args[1:]
+
+        if len(args) < 2:
+            await send_temp_message(
+                context, chat_id, topic_id,
+                "❌ Формат команды:\n"
+                "<code>/replace @user1 @user2</code>\n"
+                "<code>/replace -q @user1 @user2</code> — без сообщения"
+            )
+            await update.message.delete()
+            return
+
+        username1 = args[0].lstrip('@').lower()
+        username2 = args[1].lstrip('@').lower()
+
+        if username1 == username2:
+            if not quiet:
+                await send_temp_message(
+                    context, chat_id, topic_id,
+                    "❌ Указан один и тот же пользователь дважды."
+                )
+            await update.message.delete()
+            return
+
+        # Ищем обоих пользователей в очереди текущего топика
+        queue = queue_manager.queues[topic_id]
+
+        user1 = None
+        user2 = None
+        for u in queue:
+            if (u.get('username') or '').lower() == username1:
+                user1 = u
+            if (u.get('username') or '').lower() == username2:
+                user2 = u
+
+        missing = []
+        if not user1:
+            missing.append(f"@{username1}")
+        if not user2:
+            missing.append(f"@{username2}")
+
+        if missing:
+            if not quiet:
+                await send_temp_message(
+                    context, chat_id, topic_id,
+                    f"❌ Не найдено в очереди: {', '.join(missing)}"
+                )
+            await update.message.delete()
+            return
+
+        # Выполняем обмен
+        success = queue_manager.swap_users(
+            topic_id, user1['user_id'], user2['user_id']
+        )
+
+        if success:
+            # Обновляем основное сообщение с очередью (всегда)
+            main_message_id = queue_manager.get_queue_message_id(topic_id)
+            if main_message_id:
+                await safe_edit_message(
+                    context, chat_id, main_message_id,
+                    queue_manager.get_queue_text(topic_id), get_main_keyboard()
+                )
+
+            if not quiet:
+                user1_mention = f"@{user1['username']}" if user1['username'] else user1['display_name']
+                user2_mention = f"@{user2['username']}" if user2['username'] else user2['display_name']
+                await send_temp_message(
+                    context, chat_id, topic_id,
+                    f"✅ {user1_mention} и {user2_mention} поменяны местами."
+                )
+
+            logger.info(
+                f"Users @{username1} and @{username2} force-swapped in topic {topic_id} "
+                f"by admin {user_id} (quiet={quiet})"
+            )
+        else:
+            if not quiet:
+                await send_temp_message(
+                    context, chat_id, topic_id,
+                    "❌ Не удалось выполнить обмен."
+                )
+
+        # Удаляем сообщение с командой (всегда)
+        await update.message.delete()
+
+    except Exception as e:
+        logger.error(f"Error in replace command: {e}")
+        try:
+            if update.message:
+                await send_temp_message(
+                    context, update.message.chat_id,
+                    update.message.message_thread_id if update.message.is_topic_message else None,
+                    "❌ Произошла ошибка при выполнении команды."
+                )
+                await update.message.delete()
+        except:
+            pass
+
 def register_command_handlers(application):
     """Регистрация обработчиков команд"""
     application.add_handler(CommandHandler("start", start))
@@ -585,3 +730,4 @@ def register_command_handlers(application):
     application.add_handler(CommandHandler("clear", clear_queue_command))
     application.add_handler(CommandHandler("ban", ban_command))
     application.add_handler(CommandHandler("unban", unban_command))
+    application.add_handler(CommandHandler("replace", replace_command))
