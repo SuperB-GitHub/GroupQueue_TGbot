@@ -373,7 +373,10 @@ async def insert_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def clear_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /clear - очистка всей очереди (только для админов)"""
+    """Команда /clear [-q|q] - очистка всей очереди (только для админов)
+
+    Флаг -q / q первым аргументом — тихий режим: без сообщения-обратного отсчёта.
+    """
     try:
         if update.message and update.message.is_topic_message:
             topic_id = update.message.message_thread_id
@@ -403,6 +406,13 @@ async def clear_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.delete()
                 return
 
+            # --- Разбор аргументов с поддержкой тихого режима ---
+            args = list(context.args) if context.args else []
+            quiet = False
+            if args and args[0].lower() in ('-q', 'q'):
+                quiet = True
+                args = args[1:]
+
             # Проверяем, есть ли очередь для очистки
             queue = queue_manager.queues.get(topic_id)
             if not queue or len(queue) == 0:
@@ -414,7 +424,7 @@ async def clear_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             queue_manager.queues[topic_id] = []
             queue_manager.save_data()
 
-            # Обновляем основное сообщение с очередью
+            # Обновляем основное сообщение с очередью (всегда)
             main_message_id = queue_manager.get_queue_message_id(topic_id)
             if main_message_id:
                 await safe_edit_message(
@@ -422,7 +432,14 @@ async def clear_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                     queue_manager.get_queue_text(topic_id), get_main_keyboard()
                 )
 
-            logger.info(f"Queue cleared in topic {topic_id} by admin {user_id}")
+            logger.info(
+                f"Queue cleared in topic {topic_id} by admin {user_id} (quiet={quiet})"
+            )
+
+            # В тихом режиме — не отправляем сообщение-обратный отсчёт
+            if quiet:
+                await update.message.delete()
+                return
 
             cooldown_seconds = 30
             queue_manager.set_clear_cooldown(topic_id, cooldown_seconds)
@@ -446,17 +463,17 @@ async def clear_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                     },
                     name=f"clear_cooldown_{topic_id}_{cooldown_msg.message_id}"
                 )
-            
+
             # Удаляем сообщение с командой /clear
             await update.message.delete()
-            
+
     except Exception as e:
         logger.error(f"Error in clear command: {e}")
         try:
             await update.message.delete()
         except:
             pass
-
+        
 
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /ban @username — бан пользователя и удаление из всех очередей (только админы)"""
@@ -719,6 +736,7 @@ async def replace_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.delete()
         except:
             pass
+
 
 def register_command_handlers(application):
     """Регистрация обработчиков команд"""
